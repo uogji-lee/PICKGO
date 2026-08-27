@@ -71,6 +71,10 @@ PICKGO_JWT_SECRET=원하는-비밀키 npm start
 
 `pm2`나 `systemd`로 상시 실행되게 등록하고, Nginx 등으로 도메인을 연결하면 됩니다.
 
+--> 비용 문제로 Cloudflare Tunnel 사용
+
+
+
 ## 폴더 구조
 
 ```
