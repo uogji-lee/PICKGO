@@ -1,0 +1,19 @@
+{
+  "name": "pickgo",
+  "version": "1.0.0",
+  "description": "친구들과 함께 여행 날짜/여행지/드레스코드를 정하는 PICKGO",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^3.3.7"
+  }
+}
