@@ -7,10 +7,18 @@ const { customAlphabet } = require('nanoid');
 
 const db = require('./db');
 const regions = require('./data/regions');
+const {
+  PREFERENCES,
+  aggregatePreferences,
+  buildFallbackRecommendations,
+  normalizePreferenceIds,
+} = require('./services/recommendations');
+const { createTourApiClient } = require('./services/tourApi');
 
 const JWT_SECRET = process.env.PICKGO_JWT_SECRET || 'pickgo-dev-secret-change-me';
 const PORT = process.env.PORT || 3000;
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈리는 글자 제외
+const tourApi = createTourApiClient();
 
 const app = express();
 app.use(express.json());
@@ -46,6 +54,15 @@ function optionalAuth(req, res, next) {
 
 function issueToken(user) {
   return jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+function parseStringArray(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 // ---------- 회원가입 / 로그인 ----------
@@ -152,14 +169,15 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.availability_json, m.dresscode
+    SELECT u.id, u.nickname, m.availability_json, m.dresscode, m.preferences_json
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ?
   `).all(room.id).map(m => ({
     id: m.id,
     nickname: m.nickname,
-    availability: JSON.parse(m.availability_json || '[]'),
-    dresscode: m.dresscode || null
+    availability: parseStringArray(m.availability_json),
+    dresscode: m.dresscode || null,
+    preferences: normalizePreferenceIds(parseStringArray(m.preferences_json))
   }));
 
   // 날짜별 가능 인원 집계
@@ -194,7 +212,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     tally,
     bestDates,
     bestCount,
-    isHost: room.host_user_id === req.user.id
+    isHost: room.host_user_id === req.user.id,
+    preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label }))
   });
 });
 
@@ -231,6 +250,23 @@ app.post('/api/rooms/:id/dresscode', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/rooms/:id/preferences', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  const { preferences } = req.body || {};
+  if (!Array.isArray(preferences)) return res.status(400).json({ error: 'preferences 배열이 필요합니다.' });
+
+  const clean = normalizePreferenceIds(preferences);
+  if (clean.length !== new Set(preferences.map(String)).size) {
+    return res.status(400).json({ error: '여행 취향은 제공된 항목 중 최대 3개까지 선택할 수 있습니다.' });
+  }
+
+  db.prepare('UPDATE room_members SET preferences_json = ? WHERE room_id = ? AND user_id = ?')
+    .run(JSON.stringify(clean), room.id, req.user.id);
+  res.json({ ok: true, preferences: clean });
+});
+
 app.post('/api/rooms/:id/select-date', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
@@ -258,6 +294,44 @@ app.post('/api/rooms/:id/draw', auth, (req, res) => {
     .run(region.id, finalDresscode, 'decided', room.id);
 
   res.json({ region, dresscode: finalDresscode });
+});
+
+app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+
+  const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
+  if (!region) return res.status(409).json({ error: '여행지를 먼저 추첨해주세요.' });
+
+  const memberRows = db.prepare('SELECT preferences_json FROM room_members WHERE room_id = ?').all(room.id);
+  const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
+  let items = [];
+  let provider = 'fallback';
+  let notice = null;
+
+  if (tourApi.isConfigured()) {
+    try {
+      items = await tourApi.getRecommendations(region, votes);
+      if (items.length) provider = 'tourapi';
+      else notice = 'TourAPI에서 해당 지역의 장소를 찾지 못해 기본 추천을 표시합니다.';
+    } catch (error) {
+      console.warn(`[TourAPI] ${error.message}`);
+      notice = '관광정보 API에 일시적으로 연결할 수 없어 기본 추천을 표시합니다.';
+    }
+  } else {
+    notice = 'TOUR_API_SERVICE_KEY가 없어 기본 추천을 표시합니다.';
+  }
+
+  if (!items.length) items = buildFallbackRecommendations(region, votes);
+
+  res.json({
+    provider,
+    providerLabel: provider === 'tourapi' ? '한국관광공사 TourAPI' : 'PICKGO 기본 데이터',
+    notice,
+    preferences: PREFERENCES.map(({ id, label }) => ({ id, label, votes: votes[id] || 0 })),
+    items,
+  });
 });
 
 app.get('*', (req, res) => {

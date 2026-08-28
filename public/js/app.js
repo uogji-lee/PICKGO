@@ -193,7 +193,7 @@ async function renderRoomDetail() {
     return;
   }
 
-  const { room, members, tally, bestDates, isHost } = data;
+  const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
   const me = members.find(m => m.id === state.user.id);
   localSelectedDates = new Set(me ? me.availability : []);
 
@@ -218,6 +218,20 @@ async function renderRoomDetail() {
     </div>
 
     ${room.status === 'decided' ? renderResultCard(room) : ''}
+
+    <div class="card">
+      <h2>✨ 내 여행 취향</h2>
+      <p class="desc">최대 3개를 골라주세요. 멤버들의 선택을 합쳐 방문 장소를 추천해요.</p>
+      <div class="preference-grid" id="preferenceGrid">
+        ${preferenceOptions.map(option => `
+          <label class="preference-option ${(me?.preferences || []).includes(option.id) ? 'selected' : ''}">
+            <input type="checkbox" value="${option.id}" ${(me?.preferences || []).includes(option.id) ? 'checked' : ''} />
+            <span>${escapeHtml(option.label)}</span>
+          </label>
+        `).join('')}
+      </div>
+      <button class="block secondary" id="savePreferencesBtn">내 취향 저장</button>
+    </div>
 
     <div class="card">
       <h2>📅 가능한 날짜 표시하기</h2>
@@ -255,7 +269,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} ${m.id === room.hostUserId ? '<span class="badge host">방장</span>' : ''}</span>
-            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 가능일 ${m.availability.length}개</span>
+            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개 · 가능일 ${m.availability.length}개</span>
           </li>
         `).join('')}
       </ul>
@@ -311,6 +325,25 @@ async function renderRoomDetail() {
     } catch (e) { alert(e.message); }
   };
 
+  document.querySelectorAll('#preferenceGrid input[type=checkbox]').forEach(input => {
+    input.onchange = () => {
+      const checked = [...document.querySelectorAll('#preferenceGrid input:checked')];
+      if (checked.length > 3) {
+        input.checked = false;
+        alert('여행 취향은 최대 3개까지 선택할 수 있어요.');
+      }
+      input.closest('.preference-option').classList.toggle('selected', input.checked);
+    };
+  });
+
+  el('#savePreferencesBtn').onclick = async () => {
+    const preferences = [...document.querySelectorAll('#preferenceGrid input:checked')].map(input => input.value);
+    try {
+      await api(`/rooms/${room.id}/preferences`, { method: 'POST', body: { preferences } });
+      render();
+    } catch (e) { alert(e.message); }
+  };
+
   if (isHost) {
     const confirmBtn = el('#confirmDateBtn');
     if (confirmBtn) confirmBtn.onclick = async () => {
@@ -330,6 +363,8 @@ async function renderRoomDetail() {
       } catch (e) { alert(e.message); }
     };
   }
+
+  if (room.status === 'decided') loadRecommendations(room.id);
 }
 
 function renderResultCard(room) {
@@ -341,17 +376,65 @@ function renderResultCard(room) {
         <div style="font-size:13px;color:var(--muted)">🎉 추첨 결과</div>
         <div class="region-name">${escapeHtml(region.name)}</div>
         ${room.selectedDresscode ? `<div class="dresscode-final">드레스코드: ${escapeHtml(room.selectedDresscode)}</div>` : ''}
-        <h2 style="margin-top:20px">가볼만한 명소</h2>
-        <div class="tag-list" style="justify-content:center">
-          ${region.attractions.map(a => `<span class="tag">📍 ${escapeHtml(a)}</span>`).join('')}
-        </div>
-        <h2 style="margin-top:20px">즐길거리 추천</h2>
-        <div class="tag-list" style="justify-content:center">
-          ${region.activities.map(a => `<span class="tag">✨ ${escapeHtml(a)}</span>`).join('')}
-        </div>
       </div>
     </div>
+    <div class="card" id="recommendationCard">
+      <h2>📍 맞춤 방문 장소</h2>
+      <p class="desc">멤버들의 여행 취향을 반영해 추천 장소를 불러오는 중...</p>
+    </div>
   `;
+}
+
+async function loadRecommendations(roomId) {
+  const card = el('#recommendationCard');
+  if (!card) return;
+
+  try {
+    const data = await api(`/rooms/${roomId}/recommendations`);
+    if (state.roomId !== roomId || !el('#recommendationCard')) return;
+
+    const voteSummary = data.preferences
+      .filter(preference => preference.votes > 0)
+      .sort((a, b) => b.votes - a.votes)
+      .map(preference => `${escapeHtml(preference.label)} ${preference.votes}표`)
+      .join(' · ');
+
+    card.innerHTML = `
+      <div class="recommendation-heading">
+        <div>
+          <h2>📍 맞춤 방문 장소</h2>
+          <p class="desc">${voteSummary || '아직 취향 선택이 없어 다양한 장소를 추천했어요.'}</p>
+        </div>
+        <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
+      </div>
+      ${data.notice ? `<div class="recommendation-notice">${escapeHtml(data.notice)}</div>` : ''}
+      <div class="recommendation-grid">
+        ${data.items.map(item => {
+          const mapUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
+          return `
+            <article class="place-card">
+              ${item.thumbnail ? `<img src="${escapeHtml(item.thumbnail)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : '<div class="place-image-placeholder">🧭</div>'}
+              <div class="place-card-body">
+                <span class="place-category">${escapeHtml(item.category)}</span>
+                <h3>${escapeHtml(item.name)}</h3>
+                <p class="place-reason">${escapeHtml(item.reason)}</p>
+                ${item.address ? `<p class="place-address">${escapeHtml(item.address)}</p>` : ''}
+                <a href="${mapUrl}" target="_blank" rel="noopener noreferrer">지도에서 보기 →</a>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+      <p class="source-note">장소 정보 출처: ${escapeHtml(data.providerLabel)} · 방문 전 운영시간과 휴무일을 확인해주세요.</p>
+    `;
+  } catch (error) {
+    card.innerHTML = `
+      <h2>📍 맞춤 방문 장소</h2>
+      <div class="error-msg">${escapeHtml(error.message)}</div>
+      <button class="secondary" id="retryRecommendationsBtn">다시 불러오기</button>
+    `;
+    el('#retryRecommendationsBtn').onclick = () => loadRecommendations(roomId);
+  }
 }
 
 function shiftMonth(delta) {
