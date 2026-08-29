@@ -1,4 +1,5 @@
 const path = require('path');
+require('dotenv').config({ quiet: true });
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
@@ -11,13 +12,16 @@ const {
   PREFERENCES,
   aggregatePreferences,
   buildFallbackRecommendations,
+  buildItinerary,
   normalizePreferenceIds,
 } = require('./services/recommendations');
+const { createKakaoLocalClient } = require('./services/kakaoLocal');
 const { createTourApiClient } = require('./services/tourApi');
 
 const JWT_SECRET = process.env.PICKGO_JWT_SECRET || 'pickgo-dev-secret-change-me';
 const PORT = process.env.PORT || 3000;
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈리는 글자 제외
+const kakaoLocal = createKakaoLocalClient();
 const tourApi = createTourApiClient();
 
 const app = express();
@@ -306,30 +310,71 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   const memberRows = db.prepare('SELECT preferences_json FROM room_members WHERE room_id = ?').all(room.id);
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
-  let items = [];
-  let provider = 'fallback';
-  let notice = null;
+  let tourItems = [];
+  let kakaoItems = [];
+  let tourApiConnected = false;
+  let kakaoLocalConnected = false;
+  const notices = [];
+  const providerLabels = [];
 
   if (tourApi.isConfigured()) {
     try {
-      items = await tourApi.getRecommendations(region, votes);
-      if (items.length) provider = 'tourapi';
-      else notice = 'TourAPI에서 해당 지역의 장소를 찾지 못해 기본 추천을 표시합니다.';
+      tourItems = await tourApi.getRecommendations(region, votes, 8);
+      if (tourItems.length) {
+        tourApiConnected = true;
+        providerLabels.push('한국관광공사 TourAPI');
+      }
+      else notices.push('TourAPI에서 해당 지역의 장소를 찾지 못했습니다.');
     } catch (error) {
       console.warn(`[TourAPI] ${error.message}`);
-      notice = '관광정보 API에 일시적으로 연결할 수 없어 기본 추천을 표시합니다.';
+      notices.push('관광정보 API에 일시적으로 연결할 수 없습니다.');
     }
   } else {
-    notice = 'TOUR_API_SERVICE_KEY가 없어 기본 추천을 표시합니다.';
+    notices.push('TOUR_API_SERVICE_KEY가 없어 기본 관광정보를 사용합니다.');
   }
 
-  if (!items.length) items = buildFallbackRecommendations(region, votes);
+  if (!tourItems.length) {
+    tourItems = buildFallbackRecommendations(region, votes);
+    providerLabels.push('PICKGO 기본 데이터');
+  }
+
+  if (kakaoLocal.isConfigured()) {
+    try {
+      const anchor = tourItems.find(item => item.mapX && item.mapY) || null;
+      kakaoItems = await kakaoLocal.getPersonalizedPlaces(region.name, votes, anchor);
+      if (kakaoItems.length) {
+        kakaoLocalConnected = true;
+        providerLabels.push('카카오맵');
+      }
+      else notices.push('카카오맵에서 취향에 맞는 주변 장소를 찾지 못했습니다.');
+    } catch (error) {
+      console.warn(`[Kakao Local] ${error.message}`);
+      notices.push('카카오 로컬 API에 일시적으로 연결할 수 없습니다.');
+    }
+  } else {
+    notices.push('KAKAO_REST_API_KEY가 없어 맛집·카페·체험 동선 검색을 건너뜁니다.');
+  }
+
+  const seenPlaces = new Set();
+  const items = [...kakaoItems, ...tourItems].filter(item => {
+    const key = `${item.name}:${item.address || ''}`;
+    if (seenPlaces.has(key)) return false;
+    seenPlaces.add(key);
+    return true;
+  }).slice(0, 16);
+  const itinerary = buildItinerary(items, room.selected_date);
+  const uniqueProviderLabels = [...new Set(providerLabels)];
 
   res.json({
-    provider,
-    providerLabel: provider === 'tourapi' ? '한국관광공사 TourAPI' : 'PICKGO 기본 데이터',
-    notice,
+    provider: tourApiConnected && kakaoLocalConnected ? 'hybrid' : kakaoLocalConnected ? 'kakao' : tourApiConnected ? 'tourapi' : 'fallback',
+    providerLabel: uniqueProviderLabels.join(' + '),
+    notices,
+    integrationStatus: {
+      tourApi: { configured: tourApi.isConfigured(), connected: tourApiConnected },
+      kakaoLocal: { configured: kakaoLocal.isConfigured(), connected: kakaoLocalConnected },
+    },
     preferences: PREFERENCES.map(({ id, label }) => ({ id, label, votes: votes[id] || 0 })),
+    itinerary,
     items,
   });
 });

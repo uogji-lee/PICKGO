@@ -302,6 +302,69 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-size: 13px;
   line-height: 1.45;
 }
+.integration-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 14px;
+}
+.integration-status span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f1ece5;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.integration-status span.connected {
+  background: #e9f9ee;
+  color: #1e7e34;
+}
+.itinerary-section {
+  margin: 4px 0 24px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #fff8f4;
+}
+.itinerary-section > h3 { margin: 0 0 16px; font-size: 17px; }
+.itinerary-list { display: grid; }
+.itinerary-stop {
+  display: grid;
+  grid-template-columns: 48px 12px 1fr;
+  gap: 9px;
+  min-height: 88px;
+}
+.itinerary-time {
+  padding-top: 1px;
+  color: var(--primary-dark);
+  font-size: 13px;
+  font-weight: 800;
+}
+.itinerary-dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  background: #fff;
+}
+.itinerary-dot::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 2px;
+  width: 2px;
+  height: 72px;
+  background: var(--border);
+}
+.itinerary-stop:last-child .itinerary-dot::after { display: none; }
+.itinerary-content { display: flex; flex-direction: column; gap: 3px; padding-bottom: 16px; }
+.itinerary-content > span { color: var(--muted); font-size: 11px; }
+.itinerary-content > strong { font-size: 15px; }
+.itinerary-content > small { color: var(--muted); line-height: 1.4; }
+.itinerary-content > a { color: var(--primary-dark); font-size: 12px; font-weight: 700; text-decoration: none; }
+.place-list-title { margin: 0 0 12px; font-size: 16px; }
 .recommendation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -337,6 +400,8 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-size: 11px;
   font-weight: 700;
 }
+.place-meta { display: flex; justify-content: space-between; gap: 8px; }
+.place-meta > span:last-child { color: var(--muted); font-size: 10px; }
 .place-reason,
 .place-address {
   margin: 0 0 6px;

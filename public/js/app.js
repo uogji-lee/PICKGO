@@ -398,6 +398,10 @@ async function loadRecommendations(roomId) {
       .sort((a, b) => b.votes - a.votes)
       .map(preference => `${escapeHtml(preference.label)} ${preference.votes}표`)
       .join(' · ');
+    const notices = data.notices || (data.notice ? [data.notice] : []);
+    const itineraryStops = data.itinerary?.stops || [];
+    const placeLink = item => item.placeUrl
+      || `https://map.kakao.com/link/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
 
     card.innerHTML = `
       <div class="recommendation-heading">
@@ -407,19 +411,43 @@ async function loadRecommendations(roomId) {
         </div>
         <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
       </div>
-      ${data.notice ? `<div class="recommendation-notice">${escapeHtml(data.notice)}</div>` : ''}
+      <div class="integration-status">
+        <span class="${data.integrationStatus?.tourApi?.connected ? 'connected' : ''}">TourAPI ${data.integrationStatus?.tourApi?.connected ? '연결됨' : data.integrationStatus?.tourApi?.configured ? '연결 오류' : '키 필요'}</span>
+        <span class="${data.integrationStatus?.kakaoLocal?.connected ? 'connected' : ''}">카카오 로컬 ${data.integrationStatus?.kakaoLocal?.connected ? '연결됨' : data.integrationStatus?.kakaoLocal?.configured ? '연결 오류' : '키 필요'}</span>
+      </div>
+      ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
+      ${itineraryStops.length ? `
+        <section class="itinerary-section">
+          <h3>🗓️ ${data.itinerary.date ? `${escapeHtml(data.itinerary.date)} ` : ''}추천 하루 코스</h3>
+          <div class="itinerary-list">
+            ${itineraryStops.map((stop, index) => `
+              <div class="itinerary-stop">
+                <div class="itinerary-time">${escapeHtml(stop.time)}</div>
+                <div class="itinerary-dot"></div>
+                <div class="itinerary-content">
+                  <span>${escapeHtml(stop.title)}</span>
+                  <strong>${escapeHtml(stop.place.name)}</strong>
+                  <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · 이전 장소에서 직선 약 ${stop.travelKmFromPrevious}km` : ''}</small>
+                  <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+      ` : ''}
+      <h3 class="place-list-title">취향 기반 후보 장소</h3>
       <div class="recommendation-grid">
         ${data.items.map(item => {
-          const mapUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
+          const mapUrl = placeLink(item);
           return `
             <article class="place-card">
               ${item.thumbnail ? `<img src="${escapeHtml(item.thumbnail)}" alt="${escapeHtml(item.name)}" loading="lazy" />` : '<div class="place-image-placeholder">🧭</div>'}
               <div class="place-card-body">
-                <span class="place-category">${escapeHtml(item.category)}</span>
+                <div class="place-meta"><span class="place-category">${escapeHtml(item.category)}</span><span>${escapeHtml(item.sourceLabel || '')}</span></div>
                 <h3>${escapeHtml(item.name)}</h3>
                 <p class="place-reason">${escapeHtml(item.reason)}</p>
                 ${item.address ? `<p class="place-address">${escapeHtml(item.address)}</p>` : ''}
-                <a href="${mapUrl}" target="_blank" rel="noopener noreferrer">지도에서 보기 →</a>
+                <a href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
               </div>
             </article>
           `;

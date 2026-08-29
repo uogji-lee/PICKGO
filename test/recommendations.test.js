@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   aggregatePreferences,
+  buildItinerary,
   normalizePreferenceIds,
   rankTourItems,
 } = require('../services/recommendations');
@@ -13,6 +14,20 @@ test('여행 취향은 허용된 값만 중복 없이 최대 3개로 정리한�
     normalizePreferenceIds(['nature', 'nature', 'invalid', 'food', 'culture', 'activity']),
     ['nature', 'food', 'culture']
   );
+});
+
+test('카카오 장소를 포함해 식사와 휴식이 있는 하루 코스를 만든다', () => {
+  const places = [
+    { id: 'tour-1', name: '숲길', categoryCode: 'TOUR_12', mapX: '127.0', mapY: '37.0' },
+    { id: 'food-1', name: '동네식당', categoryCode: 'FD6', mapX: '127.01', mapY: '37.01' },
+    { id: 'tour-2', name: '공방체험', categoryCode: 'TOUR_28', mapX: '127.02', mapY: '37.02' },
+    { id: 'cafe-1', name: '골목카페', categoryCode: 'CE7', mapX: '127.03', mapY: '37.03' },
+  ];
+
+  const itinerary = buildItinerary(places, '2026-09-12');
+  assert.equal(itinerary.date, '2026-09-12');
+  assert.deepEqual(itinerary.stops.map(stop => stop.place.name), ['숲길', '동네식당', '공방체험', '골목카페']);
+  assert.ok(itinerary.stops[1].travelKmFromPrevious > 0);
 });
 
 test('여러 멤버의 여행 취향을 투표수로 집계한다', () => {
