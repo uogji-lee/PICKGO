@@ -22,7 +22,7 @@
 
 ## 로컬에서 실행하기
 
-사전 준비: [Node.js](https://nodejs.org) 18 버전 이상 설치
+사전 준비: [Node.js](https://nodejs.org) 20 버전 이상 설치
 
 ```bash
 cd pickgo
