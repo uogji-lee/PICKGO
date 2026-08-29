@@ -24,10 +24,27 @@ test('카카오 장소를 포함해 식사와 휴식이 있는 하루 코스를 
     { id: 'cafe-1', name: '골목카페', categoryCode: 'CE7', mapX: '127.03', mapY: '37.03' },
   ];
 
-  const itinerary = buildItinerary(places, '2026-09-12');
-  assert.equal(itinerary.date, '2026-09-12');
-  assert.deepEqual(itinerary.stops.map(stop => stop.place.name), ['숲길', '동네식당', '공방체험', '골목카페']);
-  assert.ok(itinerary.stops[1].travelKmFromPrevious > 0);
+  const itinerary = buildItinerary(places, '2026-09-12', 0);
+  assert.equal(itinerary.startDate, '2026-09-12');
+  assert.equal(itinerary.endDate, '2026-09-12');
+  assert.deepEqual(itinerary.days[0].stops.map(stop => stop.place.name), ['숲길', '동네식당', '공방체험', '골목카페']);
+  assert.ok(itinerary.days[0].stops[1].travelKmFromPrevious > 0);
+});
+
+test('숙박 수에 맞춰 날짜별 코스를 만들고 장소를 중복 사용하지 않는다', () => {
+  const places = Array.from({ length: 8 }, (_, index) => ({
+    id: `place-${index}`,
+    name: `장소 ${index}`,
+    categoryCode: index === 1 || index === 5 ? 'FD6' : index === 3 || index === 7 ? 'CE7' : 'TOUR_12',
+    mapX: String(127 + index * 0.01),
+    mapY: String(37 + index * 0.01),
+  }));
+
+  const itinerary = buildItinerary(places, '2026-12-31', 1);
+  const stopIds = itinerary.days.flatMap(day => day.stops.map(stop => stop.place.id));
+  assert.equal(itinerary.endDate, '2027-01-01');
+  assert.equal(itinerary.days.length, 2);
+  assert.equal(new Set(stopIds).size, stopIds.length);
 });
 
 test('여러 멤버의 여행 취향을 투표수로 집계한다', () => {

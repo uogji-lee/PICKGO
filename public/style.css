@@ -201,6 +201,11 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   border-color: var(--primary-dark);
   color: #fff;
 }
+.day-cell.trip-range:not(.final) {
+  background: #fff0ea;
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
 
 .month-nav {
   display: flex;
@@ -316,6 +321,12 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-size: 11px;
   font-weight: 700;
 }
+.trip-period-result {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
 .integration-status span.connected {
   background: #e9f9ee;
   color: #1e7e34;
@@ -327,6 +338,13 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   background: #fff8f4;
 }
 .itinerary-section > h3 { margin: 0 0 16px; font-size: 17px; }
+.itinerary-day + .itinerary-day {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.itinerary-day > h4 { margin: 0 0 12px; font-size: 15px; color: var(--primary-dark); }
+.itinerary-empty { margin: 0; color: var(--muted); font-size: 13px; }
 .itinerary-list { display: grid; }
 .itinerary-stop {
   display: grid;
@@ -431,6 +449,20 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 
 .row { display: flex; gap: 10px; }
 .row > * { flex: 1; }
+.trip-confirm-controls {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  gap: 8px;
+}
+.trip-confirm-controls select {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font-size: 14px;
+}
 
 .link-btn {
   background: none;
@@ -452,4 +484,6 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   .source-badge { display: inline-block; margin-bottom: 12px; }
   .member-list li { gap: 10px; align-items: flex-start; }
   .member-list li > span:last-child { text-align: right; }
+  .trip-confirm-controls { grid-template-columns: 1fr 1fr; }
+  .trip-confirm-controls button { grid-column: 1 / -1; }
 }

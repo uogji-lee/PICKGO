@@ -245,15 +245,18 @@ async function renderRoomDetail() {
       <button class="block" id="saveAvailBtn">내 가능 날짜 저장</button>
       ${bestDates.length ? `<p class="desc" style="margin-top:12px">🔥 최다 인원(${data.bestCount}명) 가능일: <strong>${bestDates.join(', ')}</strong></p>` : ''}
       ${isHost ? `
-        <div class="row" style="margin-top:8px">
+        <div class="trip-confirm-controls" style="margin-top:8px">
           <select id="finalDateSelect">
             <option value="">최종 날짜 선택...</option>
-            ${bestDates.map(d => `<option value="${d}">${d}</option>`).join('')}
+            ${bestDates.map(d => `<option value="${d}" ${room.selectedDate === d ? 'selected' : ''}>${d}</option>`).join('')}
           </select>
-          <button class="secondary" id="confirmDateBtn">이 날짜로 확정</button>
+          <select id="tripNightsSelect" aria-label="여행 기간">
+            ${Array.from({ length: 8 }, (_, nights) => `<option value="${nights}" ${room.tripNights === nights ? 'selected' : ''}>${tripLengthLabel(nights)}</option>`).join('')}
+          </select>
+          <button class="secondary" id="confirmDateBtn">일정 확정</button>
         </div>
       ` : ''}
-      ${room.selectedDate ? `<p class="desc" style="margin-top:8px">✅ 확정된 날짜: <strong>${room.selectedDate}</strong></p>` : ''}
+      ${room.selectedDate ? `<p class="desc" style="margin-top:8px">✅ 확정 일정: <strong>${room.selectedDate}${room.selectedEndDate !== room.selectedDate ? ` ~ ${room.selectedEndDate}` : ''} · ${tripLengthLabel(room.tripNights)}</strong></p>` : ''}
     </div>
 
     <div class="card">
@@ -306,9 +309,9 @@ async function renderRoomDetail() {
     };
   }
 
-  renderCalendar(tally, bestDates, room.selectedDate);
-  el('#prevMonth').onclick = () => { shiftMonth(-1); renderCalendar(tally, bestDates, room.selectedDate); };
-  el('#nextMonth').onclick = () => { shiftMonth(1); renderCalendar(tally, bestDates, room.selectedDate); };
+  renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate);
+  el('#prevMonth').onclick = () => { shiftMonth(-1); renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate); };
+  el('#nextMonth').onclick = () => { shiftMonth(1); renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate); };
 
   el('#saveAvailBtn').onclick = async () => {
     try {
@@ -348,9 +351,10 @@ async function renderRoomDetail() {
     const confirmBtn = el('#confirmDateBtn');
     if (confirmBtn) confirmBtn.onclick = async () => {
       const date = el('#finalDateSelect').value;
+      const nights = Number(el('#tripNightsSelect').value);
       if (!date) { alert('날짜를 선택해주세요.'); return; }
       try {
-        await api(`/rooms/${room.id}/select-date`, { method: 'POST', body: { date } });
+        await api(`/rooms/${room.id}/select-date`, { method: 'POST', body: { date, nights } });
         render();
       } catch (e) { alert(e.message); }
     };
@@ -367,6 +371,10 @@ async function renderRoomDetail() {
   if (room.status === 'decided') loadRecommendations(room.id);
 }
 
+function tripLengthLabel(nights) {
+  return Number(nights) === 0 ? '당일치기' : `${nights}박 ${Number(nights) + 1}일`;
+}
+
 function renderResultCard(room) {
   const region = room.selectedRegion;
   if (!region) return '';
@@ -375,6 +383,7 @@ function renderResultCard(room) {
       <div class="region-result">
         <div style="font-size:13px;color:var(--muted)">🎉 추첨 결과</div>
         <div class="region-name">${escapeHtml(region.name)}</div>
+        ${room.selectedDate ? `<div class="trip-period-result">${escapeHtml(room.selectedDate)}${room.selectedEndDate !== room.selectedDate ? ` ~ ${escapeHtml(room.selectedEndDate)}` : ''} · ${tripLengthLabel(room.tripNights)}</div>` : ''}
         ${room.selectedDresscode ? `<div class="dresscode-final">드레스코드: ${escapeHtml(room.selectedDresscode)}</div>` : ''}
       </div>
     </div>
@@ -399,7 +408,7 @@ async function loadRecommendations(roomId) {
       .map(preference => `${escapeHtml(preference.label)} ${preference.votes}표`)
       .join(' · ');
     const notices = data.notices || (data.notice ? [data.notice] : []);
-    const itineraryStops = data.itinerary?.stops || [];
+    const itineraryDays = data.itinerary?.days || [];
     const placeLink = item => item.placeUrl
       || `https://map.kakao.com/link/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
 
@@ -416,23 +425,30 @@ async function loadRecommendations(roomId) {
         <span class="${data.integrationStatus?.kakaoLocal?.connected ? 'connected' : ''}">카카오 로컬 ${data.integrationStatus?.kakaoLocal?.connected ? '연결됨' : data.integrationStatus?.kakaoLocal?.configured ? '연결 오류' : '키 필요'}</span>
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
-      ${itineraryStops.length ? `
+      ${itineraryDays.length ? `
         <section class="itinerary-section">
-          <h3>🗓️ ${data.itinerary.date ? `${escapeHtml(data.itinerary.date)} ` : ''}추천 하루 코스</h3>
-          <div class="itinerary-list">
-            ${itineraryStops.map((stop, index) => `
-              <div class="itinerary-stop">
-                <div class="itinerary-time">${escapeHtml(stop.time)}</div>
-                <div class="itinerary-dot"></div>
-                <div class="itinerary-content">
-                  <span>${escapeHtml(stop.title)}</span>
-                  <strong>${escapeHtml(stop.place.name)}</strong>
-                  <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · 이전 장소에서 직선 약 ${stop.travelKmFromPrevious}km` : ''}</small>
-                  <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
+          <h3>🗓️ ${tripLengthLabel(data.itinerary.nights)} 추천 코스</h3>
+          ${itineraryDays.map(day => `
+            <div class="itinerary-day">
+              <h4>${day.dayNumber}일차${day.date ? ` · ${escapeHtml(day.date)}` : ''}</h4>
+              ${day.stops.length ? `
+                <div class="itinerary-list">
+                  ${day.stops.map(stop => `
+                    <div class="itinerary-stop">
+                      <div class="itinerary-time">${escapeHtml(stop.time)}</div>
+                      <div class="itinerary-dot"></div>
+                      <div class="itinerary-content">
+                        <span>${escapeHtml(stop.title)}</span>
+                        <strong>${escapeHtml(stop.place.name)}</strong>
+                        <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · 이전 장소에서 직선 약 ${stop.travelKmFromPrevious}km` : ''}</small>
+                        <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
+                      </div>
+                    </div>
+                  `).join('')}
                 </div>
-              </div>
-            `).join('')}
-          </div>
+              ` : '<p class="itinerary-empty">추천 장소를 더 불러오면 이 날짜의 코스를 채울 수 있어요.</p>'}
+            </div>
+          `).join('')}
         </section>
       ` : ''}
       <h3 class="place-list-title">취향 기반 후보 장소</h3>
@@ -475,7 +491,7 @@ function shiftMonth(delta) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
-function renderCalendar(tally, bestDates, selectedDate) {
+function renderCalendar(tally, bestDates, selectedDate, selectedEndDate) {
   const { year, month } = calendarCursor;
   const monthNames = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
   el('#monthLabel').textContent = `${year}년 ${monthNames[month]}`;
@@ -498,6 +514,7 @@ function renderCalendar(tally, bestDates, selectedDate) {
     const count = tally[dateStr] || 0;
     if (localSelectedDates.has(dateStr)) cell.classList.add('selected');
     if (bestDates.includes(dateStr) && count > 0) cell.classList.add('best');
+    if (selectedDate && selectedEndDate && dateStr >= selectedDate && dateStr <= selectedEndDate) cell.classList.add('trip-range');
     if (selectedDate === dateStr) cell.classList.add('final');
     cell.innerHTML = `<span>${d}</span>${count ? `<span class="count">${count}명</span>` : ''}`;
     cell.onclick = () => {

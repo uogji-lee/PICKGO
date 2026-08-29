@@ -143,7 +143,15 @@ function distanceKm(from, to) {
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function buildItinerary(places, selectedDate = null) {
+function addDaysToDate(date, days) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(Date.UTC(year, month - 1, day));
+  result.setUTCDate(result.getUTCDate() + days);
+  return result.toISOString().slice(0, 10);
+}
+
+function buildItinerary(places, selectedDate = null, nights = 1) {
   const used = new Set();
   const experiences = places.filter(place => !['FD6', 'CE7'].includes(place.categoryCode));
   const restaurants = places.filter(place => place.categoryCode === 'FD6');
@@ -154,34 +162,49 @@ function buildItinerary(places, selectedDate = null) {
     { time: '14:30', title: '오후 체험', candidates: experiences },
     { time: '17:00', title: '카페·휴식', candidates: cafes },
   ];
-  const itinerary = [];
+  const cleanNights = Number.isInteger(nights) ? Math.min(Math.max(nights, 0), 7) : 1;
+  const days = [];
 
-  for (const slot of slots) {
-    const available = slot.candidates.filter(place => !used.has(place.id));
-    const fallback = places.filter(place => !used.has(place.id));
-    const pool = available.length ? available : fallback;
-    if (!pool.length) continue;
+  for (let dayIndex = 0; dayIndex <= cleanNights; dayIndex++) {
+    const stops = [];
+    for (const slot of slots) {
+      const available = slot.candidates.filter(place => !used.has(place.id));
+      const fallback = places.filter(place => !used.has(place.id));
+      const pool = available.length ? available : fallback;
+      if (!pool.length) continue;
 
-    const previous = itinerary[itinerary.length - 1]?.place;
-    const ranked = pool.map((place, index) => ({ place, index, distance: previous ? distanceKm(previous, place) : null }));
-    ranked.sort((a, b) => {
-      if (a.distance === null && b.distance === null) return a.index - b.index;
-      if (a.distance === null) return 1;
-      if (b.distance === null) return -1;
-      return a.distance - b.distance || a.index - b.index;
-    });
+      const previous = stops[stops.length - 1]?.place;
+      const ranked = pool.map((place, index) => ({ place, index, distance: previous ? distanceKm(previous, place) : null }));
+      ranked.sort((a, b) => {
+        if (a.distance === null && b.distance === null) return a.index - b.index;
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return a.distance - b.distance || a.index - b.index;
+      });
 
-    const chosen = ranked[0];
-    used.add(chosen.place.id);
-    itinerary.push({
-      time: slot.time,
-      title: slot.title,
-      travelKmFromPrevious: chosen.distance === null ? null : Math.round(chosen.distance * 10) / 10,
-      place: chosen.place,
+      const chosen = ranked[0];
+      used.add(chosen.place.id);
+      stops.push({
+        time: slot.time,
+        title: slot.title,
+        travelKmFromPrevious: chosen.distance === null ? null : Math.round(chosen.distance * 10) / 10,
+        place: chosen.place,
+      });
+    }
+
+    days.push({
+      dayNumber: dayIndex + 1,
+      date: selectedDate ? addDaysToDate(selectedDate, dayIndex) : null,
+      stops,
     });
   }
 
-  return { date: selectedDate, stops: itinerary };
+  return {
+    startDate: selectedDate,
+    endDate: selectedDate ? addDaysToDate(selectedDate, cleanNights) : null,
+    nights: cleanNights,
+    days,
+  };
 }
 
 module.exports = {

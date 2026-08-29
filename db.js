@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   invite_code TEXT UNIQUE NOT NULL,
   host_user_id INTEGER NOT NULL,
   selected_date TEXT,
+  trip_nights INTEGER NOT NULL DEFAULT 1,
   selected_region_id TEXT,
   selected_dresscode TEXT,
   status TEXT NOT NULL DEFAULT 'planning',
@@ -46,6 +47,11 @@ CREATE TABLE IF NOT EXISTS room_members (
 const memberColumns = db.prepare('PRAGMA table_info(room_members)').all();
 if (!memberColumns.some(column => column.name === 'preferences_json')) {
   db.exec("ALTER TABLE room_members ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '[]'");
+}
+
+const roomColumns = db.prepare('PRAGMA table_info(rooms)').all();
+if (!roomColumns.some(column => column.name === 'trip_nights')) {
+  db.exec('ALTER TABLE rooms ADD COLUMN trip_nights INTEGER NOT NULL DEFAULT 1');
 }
 
 module.exports = db;

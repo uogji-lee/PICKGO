@@ -82,7 +82,8 @@ function createKakaoLocalClient(options = {}) {
       .map(([id]) => id)
       .slice(0, 2);
 
-    const searchIds = [...new Set([...rankedPreferences, 'food', 'cafe'])].slice(0, 4);
+    const effectivePreferences = rankedPreferences.length ? rankedPreferences : ['nature', 'culture'];
+    const searchIds = [...new Set([...effectivePreferences, 'food', 'cafe'])].slice(0, 4);
     const settled = await Promise.allSettled(searchIds.map(async preferenceId => {
       const definition = SEARCH_DEFINITIONS[preferenceId];
       const params = {

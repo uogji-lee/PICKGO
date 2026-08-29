@@ -69,6 +69,14 @@ function parseStringArray(value) {
   }
 }
 
+function addDaysToDate(date, days) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(Date.UTC(year, month - 1, day));
+  result.setUTCDate(result.getUTCDate() + days);
+  return result.toISOString().slice(0, 10);
+}
+
 // ---------- 회원가입 / 로그인 ----------
 app.post('/api/signup', (req, res) => {
   const { nickname, password } = req.body || {};
@@ -209,6 +217,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       hostUserId: room.host_user_id,
       status: room.status,
       selectedDate: room.selected_date,
+      selectedEndDate: room.selected_date ? addDaysToDate(room.selected_date, room.trip_nights ?? 1) : null,
+      tripNights: room.trip_nights ?? 1,
       selectedRegion,
       selectedDresscode: room.selected_dresscode
     },
@@ -275,10 +285,13 @@ app.post('/api/rooms/:id/select-date', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 날짜를 확정할 수 있습니다.' });
-  const { date } = req.body || {};
+  const { date, nights = 1 } = req.body || {};
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: '올바른 날짜가 아닙니다.' });
-  db.prepare('UPDATE rooms SET selected_date = ? WHERE id = ?').run(date, room.id);
-  res.json({ ok: true });
+  if (!Number.isInteger(nights) || nights < 0 || nights > 7) {
+    return res.status(400).json({ error: '여행 기간은 당일치기부터 7박 8일까지 선택할 수 있습니다.' });
+  }
+  db.prepare('UPDATE rooms SET selected_date = ?, trip_nights = ? WHERE id = ?').run(date, nights, room.id);
+  res.json({ ok: true, selectedDate: date, selectedEndDate: addDaysToDate(date, nights), tripNights: nights });
 });
 
 app.post('/api/rooms/:id/draw', auth, (req, res) => {
@@ -361,8 +374,8 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     if (seenPlaces.has(key)) return false;
     seenPlaces.add(key);
     return true;
-  }).slice(0, 16);
-  const itinerary = buildItinerary(items, room.selected_date);
+  }).slice(0, 40);
+  const itinerary = buildItinerary(items, room.selected_date, room.trip_nights ?? 1);
   const uniqueProviderLabels = [...new Set(providerLabels)];
 
   res.json({
