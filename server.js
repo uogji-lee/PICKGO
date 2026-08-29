@@ -16,12 +16,16 @@ const {
   normalizePreferenceIds,
 } = require('./services/recommendations');
 const { createKakaoLocalClient } = require('./services/kakaoLocal');
+const { createNaverLocalClient } = require('./services/naverLocal');
+const { createGooglePlacesClient } = require('./services/googlePlaces');
 const { createTourApiClient } = require('./services/tourApi');
 
 const JWT_SECRET = process.env.PICKGO_JWT_SECRET || 'pickgo-dev-secret-change-me';
 const PORT = process.env.PORT || 3000;
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈리는 글자 제외
 const kakaoLocal = createKakaoLocalClient();
+const naverLocal = createNaverLocalClient();
+const googlePlaces = createGooglePlacesClient();
 const tourApi = createTourApiClient();
 
 const app = express();
@@ -325,8 +329,12 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
   let tourItems = [];
   let kakaoItems = [];
+  let naverItems = [];
+  let googleItems = [];
   let tourApiConnected = false;
   let kakaoLocalConnected = false;
+  let naverLocalConnected = false;
+  let googlePlacesConnected = false;
   const notices = [];
   const providerLabels = [];
 
@@ -368,12 +376,39 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       notices.push('카카오 로컬 API에 일시적으로 연결할 수 없습니다.');
     }
   } else {
-    notices.push('KAKAO_REST_API_KEY가 없어 맛집·카페·체험 동선 검색을 건너뜁니다.');
+    notices.push('카카오 로컬 키를 추가하면 실시간 맛집·카페·체험 검색을 우선 반영합니다.');
+  }
+
+  if (naverLocal.isConfigured()) {
+    try {
+      naverItems = await naverLocal.getPersonalizedPlaces(region.name, votes);
+      if (naverItems.length) {
+        naverLocalConnected = true;
+        providerLabels.push('네이버 지역검색');
+      } else notices.push('네이버에서 취향에 맞는 지역 검색 결과를 찾지 못했습니다.');
+    } catch (error) {
+      console.warn(`[Naver Local] ${error.message}`);
+      notices.push('네이버 지역 검색 API에 일시적으로 연결할 수 없습니다.');
+    }
+  }
+
+  if (googlePlaces.isConfigured()) {
+    try {
+      googleItems = await googlePlaces.getPersonalizedPlaces(region.name, votes);
+      if (googleItems.length) {
+        googlePlacesConnected = true;
+        providerLabels.push('Google Maps');
+      } else notices.push('Google Places에서 취향에 맞는 장소를 찾지 못했습니다.');
+    } catch (error) {
+      console.warn(`[Google Places] ${error.message}`);
+      notices.push('Google Places API에 일시적으로 연결할 수 없습니다.');
+    }
   }
 
   const seenPlaces = new Set();
-  const items = [...kakaoItems, ...tourItems].filter(item => {
-    const key = `${item.name}:${item.address || ''}`;
+  const items = [...kakaoItems, ...naverItems, ...tourItems, ...googleItems].filter(item => {
+    const key = String(item.name || '').toLocaleLowerCase('ko')
+      .replace(/[^0-9a-z가-힣]/g, '');
     if (seenPlaces.has(key)) return false;
     seenPlaces.add(key);
     return true;
@@ -382,12 +417,23 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const uniqueProviderLabels = [...new Set(providerLabels)];
 
   res.json({
-    provider: tourApiConnected && kakaoLocalConnected ? 'hybrid' : kakaoLocalConnected ? 'kakao' : tourApiConnected ? 'tourapi' : 'fallback',
+    provider: [tourApiConnected, kakaoLocalConnected, naverLocalConnected, googlePlacesConnected].filter(Boolean).length > 1
+      ? 'multi'
+      : kakaoLocalConnected ? 'kakao'
+        : naverLocalConnected ? 'naver'
+          : googlePlacesConnected ? 'google'
+            : tourApiConnected ? 'tourapi' : 'fallback',
     providerLabel: uniqueProviderLabels.join(' + '),
     notices,
     integrationStatus: {
       tourApi: { configured: tourApi.isConfigured(), connected: tourApiConnected },
       kakaoLocal: { configured: kakaoLocal.isConfigured(), connected: kakaoLocalConnected },
+      naverLocal: { configured: naverLocal.isConfigured(), connected: naverLocalConnected },
+      googlePlaces: { configured: googlePlaces.isConfigured(), connected: googlePlacesConnected },
+    },
+    kakaoMap: {
+      configured: Boolean(process.env.KAKAO_JAVASCRIPT_KEY),
+      javascriptKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
     },
     preferences: PREFERENCES.map(({ id, label }) => ({ id, label, votes: votes[id] || 0 })),
     itinerary,

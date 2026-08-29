@@ -331,6 +331,18 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   background: #e9f9ee;
   color: #1e7e34;
 }
+.course-map-actions {
+  margin: 0 0 18px;
+}
+.course-map {
+  width: 100%;
+  height: 420px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f5f2ee;
+}
 .itinerary-section {
   margin: 4px 0 24px;
   padding: 18px;

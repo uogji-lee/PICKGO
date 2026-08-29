@@ -9,7 +9,7 @@
 3. 각자 캘린더에서 가능한 날짜 표시 → 가장 많은 인원이 가능한 날짜 자동 집계
 4. 방장이 최다 인원 날짜 중 하나를 최종 여행일로 확정
 5. 방장이 버튼 클릭 시 전국 인기 시/군/구 여행지 중 하나를 랜덤으로 추첨
-6. 멤버 여행 취향을 집계해 TourAPI 관광정보와 카카오맵 맛집·카페·체험 장소 추천
+6. 멤버 여행 취향을 집계해 TourAPI·카카오·네이버·Google 장소 데이터로 맛집·카페·체험 장소 추천
 7. 당일치기부터 7박 8일까지 기간 선택, 장소 간 거리를 고려한 날짜별 맞춤 코스 생성
 8. 멤버 각자 원하는 드레스코드 입력 → 방장이 여행지 추첨 시 드레스코드도 함께 랜덤 추첨
 9. 방장이 언제든 방제(방 이름) 수정 가능
@@ -43,16 +43,23 @@ npm start
 | `PICKGO_DB_PATH` | SQLite 파일 경로 | `data/pickgo.db` |
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 TourAPI 일반 인증키(Decoding 키 권장) | 미설정 시 기본 장소 데이터 사용 |
 | `KAKAO_REST_API_KEY` | 카카오디벨로퍼스 앱의 REST API 키 | 미설정 시 맛집·카페·체험 검색 생략 |
+| `KAKAO_JAVASCRIPT_KEY` | 카카오 지도 JavaScript 키 | 미설정 시 코스 지도 버튼 숨김 |
+| `NAVER_CLIENT_ID` | 네이버 검색 API Client ID | 미설정 시 네이버 지역 검색 생략 |
+| `NAVER_CLIENT_SECRET` | 네이버 검색 API Client Secret | 미설정 시 네이버 지역 검색 생략 |
+| `GOOGLE_PLACES_API_KEY` | Google Places API (New) 키 | 미설정 시 Google 교차 검색 생략 |
 
 ### 맞춤 장소 추천 API 설정
 
 1. `.env.example`을 `.env`로 복사
 2. [공공데이터포털 국문 관광정보 서비스](https://www.data.go.kr/tcs/dss/selectApiDataDetailView.do?publicDataPk=15101578)에서 활용신청 후 Decoding 키를 `TOUR_API_SERVICE_KEY`에 입력
-3. [카카오디벨로퍼스](https://developers.kakao.com/)에서 앱을 만들고 `[앱] → [플랫폼 키] → [REST API 키]` 값을 `KAKAO_REST_API_KEY`에 입력
-4. 서버 재시작 후 멤버들이 방에서 여행 취향을 최대 3개까지 선택
-5. 여행 기간을 당일치기~7박 8일 중 선택하고, 여행지 추첨 후 TourAPI 관광정보와 카카오맵 장소를 결합한 날짜별 코스를 확인
+3. [카카오디벨로퍼스](https://developers.kakao.com/)에서 앱을 만들고 REST API 키를 `KAKAO_REST_API_KEY`에 입력
+4. 필요할 때만 코스 지도를 펼쳐 보려면 같은 앱의 JavaScript 키를 `KAKAO_JAVASCRIPT_KEY`에 입력하고 `http://localhost:3000`을 JavaScript SDK 도메인으로 등록
+5. [네이버 개발자센터](https://developers.naver.com/)에서 검색 API 애플리케이션을 등록하고 Client ID/Secret을 입력
+6. Google Places는 [Google Cloud Console](https://console.cloud.google.com/)에서 Places API (New)와 결제를 활성화한 뒤 제한을 건 API 키를 입력
+7. 서버 재시작 후 멤버들이 방에서 여행 취향을 최대 3개까지 선택
+8. 여행 기간을 선택하고, 여행지 추첨 후 사용 가능한 제공자의 장소를 결합한 날짜별 코스를 확인
 
-각 API가 설정되지 않았거나 일시적으로 응답하지 않으면 사용 가능한 데이터만으로 코스를 만들고, 둘 다 사용할 수 없으면 기존 지역별 명소를 표시합니다. API 키는 브라우저로 전달되지 않으며 서버에서만 사용합니다.
+각 API가 설정되지 않았거나 일시적으로 응답하지 않으면 사용 가능한 데이터만으로 코스를 만들고, 모두 사용할 수 없으면 기존 지역별 명소를 표시합니다. REST API 비밀키는 브라우저로 전달되지 않으며 서버에서만 사용합니다. 카카오 JavaScript 키는 브라우저 SDK에서 사용하는 공개 키이므로 카카오디벨로퍼스에서 허용 도메인을 꼭 제한해야 합니다. Google Places 결과는 Google Maps 출처와 원본 링크를 유지하고 카카오 코스 지도에는 표시하지 않습니다.
 
 ## 친구들과 실제로 같이 쓰려면 (배포)
 

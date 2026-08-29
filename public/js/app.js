@@ -375,6 +375,58 @@ function tripLengthLabel(nights) {
   return Number(nights) === 0 ? '당일치기' : `${nights}박 ${Number(nights) + 1}일`;
 }
 
+let kakaoMapsLoader = null;
+
+function loadKakaoMapsSdk(javascriptKey) {
+  if (window.kakao?.maps) return Promise.resolve(window.kakao.maps);
+  if (kakaoMapsLoader) return kakaoMapsLoader;
+
+  kakaoMapsLoader = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(javascriptKey)}&autoload=false`;
+    script.onload = () => window.kakao.maps.load(() => resolve(window.kakao.maps));
+    script.onerror = () => reject(new Error('카카오 지도 SDK를 불러오지 못했습니다.'));
+    document.head.appendChild(script);
+  });
+  return kakaoMapsLoader;
+}
+
+async function renderKakaoCourseMap(container, itineraryDays, javascriptKey) {
+  const maps = await loadKakaoMapsSdk(javascriptKey);
+  const mappedDays = itineraryDays.map(day => ({
+    dayNumber: day.dayNumber,
+    stops: day.stops.filter(stop => ['kakao', 'tourapi'].includes(stop.place.source)
+      && Number.isFinite(Number(stop.place.mapX)) && Number.isFinite(Number(stop.place.mapY))),
+  })).filter(day => day.stops.length);
+  const firstStop = mappedDays[0]?.stops[0];
+  if (!firstStop) throw new Error('카카오 지도에 표시할 좌표가 없습니다.');
+
+  const center = new maps.LatLng(Number(firstStop.place.mapY), Number(firstStop.place.mapX));
+  const map = new maps.Map(container, { center, level: 7 });
+  const bounds = new maps.LatLngBounds();
+  const colors = ['#ff6b35', '#4d77ff', '#16a085', '#9b59b6', '#e67e22', '#2c3e50', '#c0392b', '#00897b'];
+
+  for (const day of mappedDays) {
+    const path = day.stops.map(stop => {
+      const position = new maps.LatLng(Number(stop.place.mapY), Number(stop.place.mapX));
+      bounds.extend(position);
+      new maps.Marker({ map, position, title: `${day.dayNumber}일차 · ${stop.place.name}` });
+      return position;
+    });
+    if (path.length > 1) {
+      new maps.Polyline({
+        map,
+        path,
+        strokeWeight: 4,
+        strokeColor: colors[(day.dayNumber - 1) % colors.length],
+        strokeOpacity: 0.8,
+        strokeStyle: 'solid',
+      });
+    }
+  }
+  map.setBounds(bounds);
+}
+
 function renderResultCard(room) {
   const region = room.selectedRegion;
   if (!region) return '';
@@ -409,8 +461,14 @@ async function loadRecommendations(roomId) {
       .join(' · ');
     const notices = data.notices || (data.notice ? [data.notice] : []);
     const itineraryDays = data.itinerary?.days || [];
+    const hasKakaoMapPlaces = itineraryDays.some(day => day.stops.some(stop =>
+      ['kakao', 'tourapi'].includes(stop.place.source)
+      && Number.isFinite(Number(stop.place.mapX)) && Number.isFinite(Number(stop.place.mapY))));
     const placeLink = item => item.placeUrl
       || `https://map.kakao.com/link/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
+    const placeLinkLabel = item => item.source === 'google'
+      ? 'Google Maps에서 보기'
+      : item.source === 'naver' ? '네이버 지도에서 보기' : '카카오맵에서 보기';
 
     card.innerHTML = `
       <div class="recommendation-heading">
@@ -423,8 +481,16 @@ async function loadRecommendations(roomId) {
       <div class="integration-status">
         <span class="${data.integrationStatus?.tourApi?.connected ? 'connected' : ''}">TourAPI ${data.integrationStatus?.tourApi?.connected ? '연결됨' : data.integrationStatus?.tourApi?.configured ? '연결 오류' : '키 필요'}</span>
         <span class="${data.integrationStatus?.kakaoLocal?.connected ? 'connected' : ''}">카카오 로컬 ${data.integrationStatus?.kakaoLocal?.connected ? '연결됨' : data.integrationStatus?.kakaoLocal?.configured ? '연결 오류' : '키 필요'}</span>
+        <span class="${data.integrationStatus?.naverLocal?.connected ? 'connected' : ''}">네이버 지역검색 ${data.integrationStatus?.naverLocal?.connected ? '연결됨' : data.integrationStatus?.naverLocal?.configured ? '연결 오류' : '키 필요'}</span>
+        <span class="${data.integrationStatus?.googlePlaces?.connected ? 'connected' : ''}">Google Places ${data.integrationStatus?.googlePlaces?.connected ? '연결됨' : data.integrationStatus?.googlePlaces?.configured ? '연결 오류' : '키 필요'}</span>
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
+      ${data.kakaoMap?.configured && hasKakaoMapPlaces ? `
+        <div class="course-map-actions">
+          <button class="secondary" id="toggleCourseMapBtn">카카오맵으로 코스 보기</button>
+          <div class="course-map" id="courseMap" hidden></div>
+        </div>
+      ` : ''}
       ${itineraryDays.length ? `
         <section class="itinerary-section">
           <h3>🗓️ ${tripLengthLabel(data.itinerary.nights)} 추천 코스</h3>
@@ -441,7 +507,7 @@ async function loadRecommendations(roomId) {
                         <span>${escapeHtml(stop.title)}</span>
                         <strong>${escapeHtml(stop.place.name)}</strong>
                         <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · 이전 장소에서 직선 약 ${stop.travelKmFromPrevious}km` : ''}</small>
-                        <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
+                        <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">${escapeHtml(placeLinkLabel(stop.place))} →</a>
                       </div>
                     </div>
                   `).join('')}
@@ -463,7 +529,7 @@ async function loadRecommendations(roomId) {
                 <h3>${escapeHtml(item.name)}</h3>
                 <p class="place-reason">${escapeHtml(item.reason)}</p>
                 ${item.address ? `<p class="place-address">${escapeHtml(item.address)}</p>` : ''}
-                <a href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기 →</a>
+                <a href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(placeLinkLabel(item))} →</a>
               </div>
             </article>
           `;
@@ -471,6 +537,30 @@ async function loadRecommendations(roomId) {
       </div>
       <p class="source-note">장소 정보 출처: ${escapeHtml(data.providerLabel)} · 방문 전 운영시간과 휴무일을 확인해주세요.</p>
     `;
+
+    const mapButton = el('#toggleCourseMapBtn');
+    if (mapButton) {
+      mapButton.onclick = async () => {
+        const container = el('#courseMap');
+        if (!container.hidden) {
+          container.hidden = true;
+          mapButton.textContent = '카카오맵으로 코스 보기';
+          return;
+        }
+        container.hidden = false;
+        mapButton.disabled = true;
+        mapButton.textContent = '지도를 불러오는 중...';
+        try {
+          await renderKakaoCourseMap(container, itineraryDays, data.kakaoMap.javascriptKey);
+          mapButton.textContent = '코스 지도 접기';
+        } catch (error) {
+          container.innerHTML = `<div class="error-msg">${escapeHtml(error.message)}</div>`;
+          mapButton.textContent = '지도 다시 불러오기';
+        } finally {
+          mapButton.disabled = false;
+        }
+      };
+    }
   } catch (error) {
     card.innerHTML = `
       <h2>📍 맞춤 방문 장소</h2>

@@ -3,12 +3,12 @@ const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const SEARCH_DEFINITIONS = Object.freeze({
   nature: { keyword: '산책', categoryCode: 'AT4', label: '자연·힐링' },
-  culture: { keyword: '문화', categoryCode: 'CT1', label: '문화·역사' },
-  activity: { keyword: '체험', categoryCode: null, label: '액티비티' },
-  food: { keyword: '맛집', categoryCode: 'FD6', label: '맛집' },
-  shopping: { keyword: '전통시장', categoryCode: null, label: '쇼핑' },
-  festival: { keyword: '축제', categoryCode: 'CT1', label: '축제·공연' },
-  cafe: { keyword: '카페', categoryCode: 'CE7', label: '카페·휴식' },
+  culture: { keyword: '전시 공연', categoryCode: 'CT1', label: '전시·공연' },
+  activity: { keyword: '놀거리 체험', categoryCode: null, label: '액티비티·체험' },
+  food: { keyword: '맛집', categoryCode: 'FD6', label: '맛집·카페' },
+  shopping: { keyword: '소품샵 쇼핑', categoryCode: null, label: '쇼핑·소품샵' },
+  festival: { keyword: '축제 이벤트', categoryCode: 'CT1', label: '축제·이벤트' },
+  cafe: { keyword: '카페 디저트', categoryCode: 'CE7', label: '카페·디저트' },
 });
 
 function safeWebUrl(value) {
