@@ -1,10 +1,10 @@
 const PREFERENCES = Object.freeze([
   { id: 'nature', label: '자연·힐링', contentTypes: [], keywords: ['공원', '숲', '산', '해변', '해수욕장', '수목원', '정원', '생태', '휴양', '폭포', '계곡', '호수', '섬'] },
-  { id: 'culture', label: '문화·역사', contentTypes: ['14'], keywords: ['궁', '성', '사찰', '박물관', '미술관', '문화', '역사', '유적', '한옥'] },
-  { id: 'activity', label: '액티비티', contentTypes: ['25', '28'], keywords: ['체험', '레포츠', '서핑', '카약', '자전거', '트레킹', '케이블카'] },
-  { id: 'food', label: '맛집', contentTypes: ['39'], keywords: ['음식', '식당', '시장', '카페', '빵', '회', '한정식'] },
-  { id: 'shopping', label: '쇼핑', contentTypes: ['38'], keywords: ['시장', '상점', '쇼핑', '공방', '특산물'] },
-  { id: 'festival', label: '축제·공연', contentTypes: ['15'], keywords: ['축제', '공연', '행사', '페스티벌'] },
+  { id: 'culture', label: '전시·공연', contentTypes: ['14'], keywords: ['전시', '공연', '미술관', '아트', '갤러리', '문화', '뮤지엄'] },
+  { id: 'activity', label: '액티비티·체험', contentTypes: ['25', '28'], keywords: ['체험', '레포츠', '서핑', '카약', '자전거', '클라이밍', '테마파크', '놀거리'] },
+  { id: 'food', label: '맛집·카페', contentTypes: ['39'], keywords: ['맛집', '음식', '식당', '카페', '베이커리', '디저트', '브런치'] },
+  { id: 'shopping', label: '쇼핑·소품샵', contentTypes: ['38'], keywords: ['쇼핑', '공방', '소품', '편집숍', '플리마켓', '복합문화공간'] },
+  { id: 'festival', label: '축제·이벤트', contentTypes: ['15'], keywords: ['축제', '공연', '행사', '페스티벌', '콘서트', '야시장'] },
 ]);
 
 const CONTENT_TYPE_LABELS = Object.freeze({
@@ -17,6 +17,10 @@ const CONTENT_TYPE_LABELS = Object.freeze({
   38: '쇼핑',
   39: '음식점',
 });
+
+const TRENDY_KEYWORDS = Object.freeze(['카페', '아트', '벽화', '거리', '전망대', '복합문화', '테마', '공방', '야시장', '통닭', '놀이터', '쇼핑몰']);
+const QUIET_CULTURE_KEYWORDS = Object.freeze(['박물관', '향교', '선생묘', '사찰', '암(', '도서관']);
+const GENERIC_FACILITY_KEYWORDS = Object.freeze(['주민편익시설', '체육문화센터', '어린이교통공원']);
 
 const preferenceById = new Map(PREFERENCES.map(preference => [preference.id, preference]));
 
@@ -50,6 +54,10 @@ function getEffectiveVotes(votes) {
   return { nature: 1, culture: 1, activity: 1, food: 1 };
 }
 
+function isCafeTitle(value) {
+  return /카페|커피|로스터|베이커리|디저트|브런치|티룸|찻집|다방/.test(String(value || ''));
+}
+
 function rankTourItems(items, votes, limit = 6) {
   const effectiveVotes = getEffectiveVotes(votes);
   const seen = new Set();
@@ -74,12 +82,20 @@ function rankTourItems(items, votes, limit = 6) {
         }
       }
 
+      const trendyMatchCount = TRENDY_KEYWORDS.filter(keyword => searchable.includes(keyword)).length;
+      score += trendyMatchCount * 4;
+      if (trendyMatchCount && (Number(effectiveVotes.activity) > 0 || Number(effectiveVotes.festival) > 0)) score += 6;
+      if (!Number(effectiveVotes.culture) && QUIET_CULTURE_KEYWORDS.some(keyword => searchable.includes(keyword))) score -= 8;
+      if (GENERIC_FACILITY_KEYWORDS.some(keyword => searchable.includes(keyword))) score -= 12;
+      if (!Number(effectiveVotes.nature) && /둘레길|옛길|트레킹길/.test(searchable)) score -= 6;
+
       if (item.firstimage || item.firstimage2) score += 2;
 
+      const cafe = contentTypeId === '39' && isCafeTitle(item.title);
       return {
         id: String(item.contentid),
         name: String(item.title),
-        category: CONTENT_TYPE_LABELS[contentTypeId] || '여행지',
+        category: cafe ? '카페·디저트' : CONTENT_TYPE_LABELS[contentTypeId] || '여행지',
         image: safeWebUrl(item.firstimage || item.firstimage2),
         thumbnail: safeWebUrl(item.firstimage2 || item.firstimage),
         address: [item.addr1, item.addr2].filter(Boolean).join(' ').trim(),
@@ -87,7 +103,7 @@ function rankTourItems(items, votes, limit = 6) {
         mapX: item.mapx ? String(item.mapx) : null,
         mapY: item.mapy ? String(item.mapy) : null,
         copyrightType: item.cpyrhtDivCd ? String(item.cpyrhtDivCd) : null,
-        categoryCode: `TOUR_${contentTypeId}`,
+        categoryCode: cafe ? 'TOUR_CAFE' : `TOUR_${contentTypeId}`,
         placeUrl: null,
         source: 'tourapi',
         sourceLabel: '한국관광공사',
@@ -153,14 +169,16 @@ function addDaysToDate(date, days) {
 
 function buildItinerary(places, selectedDate = null, nights = 1) {
   const used = new Set();
-  const experiences = places.filter(place => !['FD6', 'CE7'].includes(place.categoryCode));
-  const restaurants = places.filter(place => place.categoryCode === 'FD6');
-  const cafes = places.filter(place => place.categoryCode === 'CE7');
+  const isCafe = place => ['CE7', 'TOUR_CAFE'].includes(place.categoryCode);
+  const isRestaurant = place => ['FD6', 'TOUR_39'].includes(place.categoryCode);
+  const experiences = places.filter(place => !isRestaurant(place) && !isCafe(place));
+  const restaurants = places.filter(isRestaurant);
+  const cafes = places.filter(isCafe);
   const slots = [
-    { time: '10:00', title: '취향 장소', candidates: experiences },
-    { time: '12:30', title: '점심', candidates: restaurants },
-    { time: '14:30', title: '오후 체험', candidates: experiences },
-    { time: '17:00', title: '카페·휴식', candidates: cafes },
+    { time: '10:30', title: '취향 스폿', candidates: experiences },
+    { time: '12:30', title: '점심 맛집', candidates: restaurants },
+    { time: '15:00', title: '체험·핫플', candidates: experiences },
+    { time: '17:30', title: '카페·휴식', candidates: cafes.length ? cafes : restaurants },
   ];
   const cleanNights = Number.isInteger(nights) ? Math.min(Math.max(nights, 0), 7) : 1;
   const days = [];

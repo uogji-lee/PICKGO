@@ -332,7 +332,10 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   if (tourApi.isConfigured()) {
     try {
-      tourItems = await tourApi.getRecommendations(region, votes, 8);
+      const itineraryPlaceCount = Math.min(((room.trip_nights ?? 1) + 1) * 4, 32);
+      tourItems = await tourApi.getRecommendations(region, votes, itineraryPlaceCount, {
+        tripDate: room.selected_date,
+      });
       if (tourItems.length) {
         tourApiConnected = true;
         providerLabels.push('한국관광공사 TourAPI');

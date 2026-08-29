@@ -31,6 +31,23 @@ test('카카오 장소를 포함해 식사와 휴식이 있는 하루 코스를 
   assert.ok(itinerary.days[0].stops[1].travelKmFromPrevious > 0);
 });
 
+test('TourAPI 음식점과 카페를 실제 식사·휴식 슬롯에 배치한다', () => {
+  const places = [
+    { id: 'tour-1', name: '점핑파크', categoryCode: 'TOUR_28' },
+    { id: 'food-1', name: '행궁동 맛집', categoryCode: 'TOUR_39' },
+    { id: 'tour-2', name: '아트스페이스', categoryCode: 'TOUR_14' },
+    { id: 'cafe-1', name: '행궁동 카페', categoryCode: 'TOUR_CAFE' },
+  ];
+
+  const itinerary = buildItinerary(places, '2026-09-05', 0);
+  assert.deepEqual(itinerary.days[0].stops.map(stop => stop.place.name), [
+    '점핑파크', '행궁동 맛집', '아트스페이스', '행궁동 카페',
+  ]);
+  assert.deepEqual(itinerary.days[0].stops.map(stop => stop.title), [
+    '취향 스폿', '점심 맛집', '체험·핫플', '카페·휴식',
+  ]);
+});
+
 test('숙박 수에 맞춰 날짜별 코스를 만들고 장소를 중복 사용하지 않는다', () => {
   const places = Array.from({ length: 8 }, (_, index) => ({
     id: `place-${index}`,
@@ -69,36 +86,48 @@ test('TourAPI 장소를 그룹 취향 점수에 따라 정렬한다', () => {
 
 test('지역명에서 TourAPI 법정동 조회용 시도·시군구명을 분리한다', () => {
   assert.deepEqual(parseRegionName('인천 중구(을왕리)'), {
-    provinceNames: ['인천광역시'],
+    provinceNames: ['인천', '인천광역시'],
     districtName: '중구',
   });
   assert.deepEqual(parseRegionName('강원 강릉시'), {
-    provinceNames: ['강원특별자치도', '강원도'],
+    provinceNames: ['강원', '강원특별자치도', '강원도'],
     districtName: '강릉시',
   });
 });
 
-test('TourAPI 클라이언트가 법정동 코드를 찾고 지역 장소를 추천한다', async () => {
+test('TourAPI 클라이언트가 관광 지역 코드를 찾고 장소 종류를 섞어 추천한다', async () => {
   const requestedUrls = [];
-  const payloads = [
-    { response: { header: { resultCode: '0000' }, body: { items: { item: [{ name: '서울특별시', code: '11' }] } } } },
-    { response: { header: { resultCode: '0000' }, body: { items: { item: [{ name: '종로구', code: '11110' }] } } } },
-    { response: { header: { resultCode: '0000' }, body: { items: { item: [
-      { contentid: '100', contenttypeid: '14', title: '서울역사박물관', addr1: '서울 종로구', firstimage: 'https://example.com/100.jpg' },
-    ] } } } },
-  ];
   const client = createTourApiClient({
     serviceKey: 'test-key',
     fetchImpl: async url => {
       requestedUrls.push(url.toString());
-      const payload = payloads.shift();
+      const parsed = new URL(url);
+      const endpoint = parsed.pathname.split('/').pop();
+      let items = [];
+      if (endpoint === 'areaCode2' && !parsed.searchParams.has('areaCode')) {
+        items = [{ name: '서울', code: '1' }];
+      } else if (endpoint === 'areaCode2') {
+        items = [{ name: '종로구', code: '1' }];
+      } else if (endpoint === 'searchKeyword2') {
+        items = [{ contentid: '400', contenttypeid: '39', title: '종로 카페', addr1: '서울 종로구' }];
+      } else {
+        const type = parsed.searchParams.get('contentTypeId');
+        items = [{
+          contentid: `tour-${type}`,
+          contenttypeid: type,
+          title: type === '39' ? '종로 맛집' : type === '14' ? '서울 전시공간' : '서울 산책길',
+          addr1: '서울 종로구',
+        }];
+      }
+      const payload = { response: { header: { resultCode: '0000' }, body: { items: { item: items } } } };
       return { ok: true, status: 200, json: async () => payload };
     },
   });
 
-  const items = await client.getRecommendations({ name: '서울 종로구' }, { culture: 2 });
-  assert.equal(items[0].name, '서울역사박물관');
-  assert.equal(requestedUrls.length, 3);
-  assert.match(requestedUrls[2], /lDongRegnCd=11/);
-  assert.match(requestedUrls[2], /lDongSignguCd=11110/);
+  const items = await client.getRecommendations({ name: '서울 종로구' }, { culture: 2 }, 4);
+  assert.equal(items.some(item => item.name === '서울 전시공간'), true);
+  assert.equal(items.some(item => item.categoryCode === 'TOUR_39'), true);
+  assert.equal(items.some(item => item.categoryCode === 'TOUR_CAFE'), true);
+  assert.match(requestedUrls[2], /areaCode=1/);
+  assert.match(requestedUrls[2], /sigunguCode=1/);
 });
