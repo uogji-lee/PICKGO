@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS rooms (
   host_user_id INTEGER NOT NULL,
   selected_date TEXT,
   trip_nights INTEGER NOT NULL DEFAULT 1,
+  traveler_count INTEGER NOT NULL DEFAULT 1,
+  transport_mode TEXT NOT NULL DEFAULT 'public',
+  vehicle_count INTEGER NOT NULL DEFAULT 0,
+  accommodation_name TEXT,
+  accommodation_address TEXT,
+  accommodation_map_x TEXT,
+  accommodation_map_y TEXT,
   selected_region_id TEXT,
   selected_dresscode TEXT,
   status TEXT NOT NULL DEFAULT 'planning',
@@ -52,6 +59,20 @@ if (!memberColumns.some(column => column.name === 'preferences_json')) {
 const roomColumns = db.prepare('PRAGMA table_info(rooms)').all();
 if (!roomColumns.some(column => column.name === 'trip_nights')) {
   db.exec('ALTER TABLE rooms ADD COLUMN trip_nights INTEGER NOT NULL DEFAULT 1');
+}
+
+const roomMigrations = [
+  ['traveler_count', "ALTER TABLE rooms ADD COLUMN traveler_count INTEGER NOT NULL DEFAULT 1"],
+  ['transport_mode', "ALTER TABLE rooms ADD COLUMN transport_mode TEXT NOT NULL DEFAULT 'public'"],
+  ['vehicle_count', "ALTER TABLE rooms ADD COLUMN vehicle_count INTEGER NOT NULL DEFAULT 0"],
+  ['accommodation_name', 'ALTER TABLE rooms ADD COLUMN accommodation_name TEXT'],
+  ['accommodation_address', 'ALTER TABLE rooms ADD COLUMN accommodation_address TEXT'],
+  ['accommodation_map_x', 'ALTER TABLE rooms ADD COLUMN accommodation_map_x TEXT'],
+  ['accommodation_map_y', 'ALTER TABLE rooms ADD COLUMN accommodation_map_y TEXT'],
+];
+
+for (const [columnName, statement] of roomMigrations) {
+  if (!roomColumns.some(column => column.name === columnName)) db.exec(statement);
 }
 
 module.exports = db;

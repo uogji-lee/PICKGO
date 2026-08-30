@@ -223,6 +223,15 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       selectedDate: room.selected_date,
       selectedEndDate: room.selected_date ? addDaysToDate(room.selected_date, room.trip_nights ?? 1) : null,
       tripNights: room.trip_nights ?? 1,
+      travelerCount: room.traveler_count ?? members.length ?? 1,
+      transportMode: room.transport_mode === 'car' ? 'car' : 'public',
+      vehicleCount: room.vehicle_count ?? 0,
+      accommodation: room.accommodation_name ? {
+        name: room.accommodation_name,
+        address: room.accommodation_address || null,
+        mapX: room.accommodation_map_x || null,
+        mapY: room.accommodation_map_y || null,
+      } : null,
       selectedRegion,
       selectedDresscode: room.selected_dresscode
     },
@@ -285,6 +294,79 @@ app.post('/api/rooms/:id/preferences', auth, (req, res) => {
   res.json({ ok: true, preferences: clean });
 });
 
+app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 여행 조건을 변경할 수 있습니다.' });
+
+  const travelerCount = Number(req.body?.travelerCount);
+  const transportMode = req.body?.transportMode === 'car' ? 'car' : 'public';
+  const vehicleCount = transportMode === 'car' ? Number(req.body?.vehicleCount) : 0;
+  const accommodationName = String(req.body?.accommodationName || '').trim().slice(0, 80);
+
+  if (!Number.isInteger(travelerCount) || travelerCount < 1 || travelerCount > 30) {
+    return res.status(400).json({ error: '여행 인원은 1명부터 30명까지 입력할 수 있습니다.' });
+  }
+  if (transportMode === 'car' && (!Number.isInteger(vehicleCount) || vehicleCount < 1 || vehicleCount > 10)) {
+    return res.status(400).json({ error: '차량 수는 1대부터 10대까지 입력할 수 있습니다.' });
+  }
+
+  let accommodation = null;
+  let accommodationNotice = null;
+  if (accommodationName) {
+    if (kakaoLocal.isConfigured()) {
+      try {
+        const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
+        const documents = await kakaoLocal.searchKeyword({
+          query: [region?.name, accommodationName].filter(Boolean).join(' '),
+          size: 5,
+        });
+        const found = documents.find(document => document.category_group_code === 'AD5') || documents[0];
+        if (found) {
+          accommodation = {
+            name: String(found.place_name || accommodationName),
+            address: String(found.road_address_name || found.address_name || ''),
+            mapX: found.x ? String(found.x) : null,
+            mapY: found.y ? String(found.y) : null,
+          };
+        } else {
+          accommodationNotice = '숙소 위치를 찾지 못했습니다. 숙소명과 지역을 함께 입력해 주세요.';
+        }
+      } catch (error) {
+        console.warn(`[Kakao Accommodation] ${error.message}`);
+        accommodationNotice = '숙소 위치 조회가 지연되어 이름만 저장했습니다.';
+      }
+    } else {
+      accommodationNotice = '카카오 로컬 키가 없어 숙소 이름만 저장했습니다.';
+    }
+  }
+
+  db.prepare(`
+    UPDATE rooms
+    SET traveler_count = ?, transport_mode = ?, vehicle_count = ?,
+        accommodation_name = ?, accommodation_address = ?, accommodation_map_x = ?, accommodation_map_y = ?
+    WHERE id = ?
+  `).run(
+    travelerCount,
+    transportMode,
+    vehicleCount,
+    accommodation?.name || accommodationName || null,
+    accommodation?.address || null,
+    accommodation?.mapX || null,
+    accommodation?.mapY || null,
+    room.id
+  );
+
+  res.json({
+    ok: true,
+    travelerCount,
+    transportMode,
+    vehicleCount,
+    accommodation: accommodation || (accommodationName ? { name: accommodationName } : null),
+    notice: accommodationNotice,
+  });
+});
+
 app.post('/api/rooms/:id/select-date', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
@@ -327,6 +409,12 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   const memberRows = db.prepare('SELECT preferences_json FROM room_members WHERE room_id = ?').all(room.id);
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
+  const accommodation = room.accommodation_map_x && room.accommodation_map_y ? {
+    name: room.accommodation_name || '숙소',
+    address: room.accommodation_address || '',
+    mapX: room.accommodation_map_x,
+    mapY: room.accommodation_map_y,
+  } : null;
   let tourItems = [];
   let kakaoItems = [];
   let naverItems = [];
@@ -364,7 +452,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   if (kakaoLocal.isConfigured()) {
     try {
-      const anchor = tourItems.find(item => item.mapX && item.mapY) || null;
+      const anchor = accommodation || tourItems.find(item => item.mapX && item.mapY) || null;
       kakaoItems = await kakaoLocal.getPersonalizedPlaces(region.name, votes, anchor);
       if (kakaoItems.length) {
         kakaoLocalConnected = true;
@@ -413,7 +501,17 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     seenPlaces.add(key);
     return true;
   }).slice(0, 40);
-  const itinerary = buildItinerary(items, room.selected_date, room.trip_nights ?? 1);
+  const itinerary = buildItinerary(items, room.selected_date, room.trip_nights ?? 1, {
+    travelerCount: room.traveler_count ?? 1,
+    transportMode: room.transport_mode,
+    vehicleCount: room.vehicle_count ?? 0,
+    accommodation,
+  });
+  if (room.accommodation_name && !accommodation) {
+    notices.push('숙소 좌표를 확인하지 못해 현재는 선정 지역 중심으로 코스를 구성했습니다. 여행 조건에서 숙소를 다시 검색해 주세요.');
+  } else if (accommodation && !itinerary.days.some(day => day.stops.length)) {
+    notices.push(`숙소에서 ${itinerary.planning.maxDistanceFromAccommodationKm}km 안에 추천 장소가 없습니다. 교통수단이나 숙소를 변경해 주세요.`);
+  }
   const uniqueProviderLabels = [...new Set(providerLabels)];
 
   res.json({
@@ -436,6 +534,16 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       javascriptKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
     },
     preferences: PREFERENCES.map(({ id, label }) => ({ id, label, votes: votes[id] || 0 })),
+    tripSettings: {
+      travelerCount: room.traveler_count ?? 1,
+      transportMode: room.transport_mode === 'car' ? 'car' : 'public',
+      vehicleCount: room.vehicle_count ?? 0,
+      accommodation: room.accommodation_name ? {
+        name: room.accommodation_name,
+        address: room.accommodation_address || null,
+        resolved: Boolean(accommodation),
+      } : null,
+    },
     itinerary,
     items,
   });

@@ -64,6 +64,40 @@ test('숙박 수에 맞춰 날짜별 코스를 만들고 장소를 중복 사용
   assert.equal(new Set(stopIds).size, stopIds.length);
 });
 
+test('대중교통 코스는 숙소 반경 안의 장소만 사용하고 숙소 복귀 이동을 계산한다', () => {
+  const places = [
+    { id: 'near-spot-1', name: '숙소앞 전시', categoryCode: 'TOUR_14', mapX: '127.005', mapY: '37.005' },
+    { id: 'near-food', name: '숙소앞 식당', categoryCode: 'FD6', mapX: '127.01', mapY: '37.005' },
+    { id: 'near-spot-2', name: '동네 체험', categoryCode: 'TOUR_28', mapX: '127.015', mapY: '37.01' },
+    { id: 'near-cafe', name: '동네 카페', categoryCode: 'CE7', mapX: '127.02', mapY: '37.01' },
+    { id: 'far-spot', name: '먼 관광지', categoryCode: 'TOUR_12', mapX: '128.0', mapY: '38.0' },
+  ];
+
+  const itinerary = buildItinerary(places, '2026-09-05', 0, {
+    travelerCount: 4,
+    transportMode: 'public',
+    accommodation: { name: '테스트 호텔', mapX: '127.0', mapY: '37.0' },
+  });
+
+  assert.equal(itinerary.planning.maxDistanceFromAccommodationKm, 12);
+  assert.equal(itinerary.days[0].stops.some(stop => stop.place.id === 'far-spot'), false);
+  assert.equal(itinerary.days[0].stops[0].travelOrigin, 'accommodation');
+  assert.ok(itinerary.days[0].stops[0].travelMinutesFromPrevious > 0);
+  assert.ok(itinerary.days[0].returnKmToAccommodation > 0);
+});
+
+test('차량 수와 여행 인원으로 좌석 부족 안내를 만든다', () => {
+  const itinerary = buildItinerary([], null, 0, {
+    travelerCount: 8,
+    transportMode: 'car',
+    vehicleCount: 1,
+  });
+
+  assert.equal(itinerary.planning.transportLabel, '차량 1대');
+  assert.equal(itinerary.planning.seatCapacity, 5);
+  assert.match(itinerary.planning.seatWarning, /3명/);
+});
+
 test('여러 멤버의 여행 취향을 투표수로 집계한다', () => {
   assert.deepEqual(
     aggregatePreferences([['nature', 'food'], ['food', 'culture'], ['food']]),

@@ -220,6 +220,41 @@ async function renderRoomDetail() {
     ${room.status === 'decided' ? renderResultCard(room) : ''}
 
     <div class="card">
+      <h2>🚗 교통·숙소 조건</h2>
+      <p class="desc">인원과 이동수단, 숙소를 기준으로 하루 이동 범위와 방문 순서를 조정해요. 현재 참여 멤버는 ${members.length}명입니다.</p>
+      ${isHost ? `
+        <div class="trip-settings-grid">
+          <label>
+            <span>실제 여행 인원</span>
+            <input type="number" id="travelerCountInput" min="1" max="30" value="${room.travelerCount || members.length || 1}" />
+          </label>
+          <label>
+            <span>주요 교통수단</span>
+            <select id="transportModeSelect">
+              <option value="public" ${room.transportMode !== 'car' ? 'selected' : ''}>대중교통·도보</option>
+              <option value="car" ${room.transportMode === 'car' ? 'selected' : ''}>차량</option>
+            </select>
+          </label>
+          <label id="vehicleCountField" ${room.transportMode === 'car' ? '' : 'hidden'}>
+            <span>사용 가능한 차량</span>
+            <input type="number" id="vehicleCountInput" min="1" max="10" value="${Math.max(room.vehicleCount || 1, 1)}" />
+          </label>
+          <label class="trip-settings-wide">
+            <span>숙소명 또는 주소</span>
+            <input type="text" id="accommodationInput" maxlength="80" placeholder="예: 포항 라한호텔 또는 도로명 주소" value="${escapeHtml(room.accommodation?.name || '')}" />
+          </label>
+        </div>
+        <button class="block secondary" id="saveTripSettingsBtn">교통·숙소 조건 저장</button>
+      ` : `
+        <div class="trip-settings-summary">
+          <strong>${room.travelerCount}명 · ${room.transportMode === 'car' ? `차량 ${room.vehicleCount}대` : '대중교통·도보'}</strong>
+          <span>${room.accommodation ? `숙소: ${escapeHtml(room.accommodation.name)}` : '숙소 미정'}</span>
+        </div>
+      `}
+      ${room.accommodation ? `<p class="desc trip-settings-saved">📍 ${escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
+    </div>
+
+    <div class="card">
       <h2>✨ 내 여행 취향</h2>
       <p class="desc">최대 3개를 골라주세요. 멤버들의 선택을 합쳐 방문 장소를 추천해요.</p>
       <div class="preference-grid" id="preferenceGrid">
@@ -328,6 +363,28 @@ async function renderRoomDetail() {
     } catch (e) { alert(e.message); }
   };
 
+  if (isHost) {
+    const transportModeSelect = el('#transportModeSelect');
+    const vehicleCountField = el('#vehicleCountField');
+    transportModeSelect.onchange = () => {
+      vehicleCountField.hidden = transportModeSelect.value !== 'car';
+    };
+    el('#saveTripSettingsBtn').onclick = async () => {
+      const travelerCount = Number(el('#travelerCountInput').value);
+      const transportMode = transportModeSelect.value;
+      const vehicleCount = transportMode === 'car' ? Number(el('#vehicleCountInput').value) : 0;
+      const accommodationName = el('#accommodationInput').value.trim();
+      try {
+        const result = await api(`/rooms/${room.id}/trip-settings`, {
+          method: 'POST',
+          body: { travelerCount, transportMode, vehicleCount, accommodationName },
+        });
+        if (result.notice) alert(result.notice);
+        render();
+      } catch (e) { alert(e.message); }
+    };
+  }
+
   document.querySelectorAll('#preferenceGrid input[type=checkbox]').forEach(input => {
     input.onchange = () => {
       const checked = [...document.querySelectorAll('#preferenceGrid input:checked')];
@@ -373,6 +430,15 @@ async function renderRoomDetail() {
 
 function tripLengthLabel(nights) {
   return Number(nights) === 0 ? '당일치기' : `${nights}박 ${Number(nights) + 1}일`;
+}
+
+function travelMinutesLabel(minutes) {
+  if (!Number.isFinite(Number(minutes))) return '';
+  const value = Number(minutes);
+  if (value < 60) return `약 ${value}분`;
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest ? `약 ${hours}시간 ${rest}분` : `약 ${hours}시간`;
 }
 
 let kakaoMapsLoader = null;
@@ -436,6 +502,7 @@ function renderResultCard(room) {
         <div style="font-size:13px;color:var(--muted)">🎉 추첨 결과</div>
         <div class="region-name">${escapeHtml(region.name)}</div>
         ${room.selectedDate ? `<div class="trip-period-result">${escapeHtml(room.selectedDate)}${room.selectedEndDate !== room.selectedDate ? ` ~ ${escapeHtml(room.selectedEndDate)}` : ''} · ${tripLengthLabel(room.tripNights)}</div>` : ''}
+        <div class="trip-period-result">${room.travelerCount}명 · ${room.transportMode === 'car' ? `차량 ${room.vehicleCount}대` : '대중교통·도보'} · ${room.accommodation ? `숙소 ${escapeHtml(room.accommodation.name)}` : '숙소 미정'}</div>
         ${room.selectedDresscode ? `<div class="dresscode-final">드레스코드: ${escapeHtml(room.selectedDresscode)}</div>` : ''}
       </div>
     </div>
@@ -485,6 +552,13 @@ async function loadRecommendations(roomId) {
         <span class="${data.integrationStatus?.googlePlaces?.connected ? 'connected' : ''}">Google Places ${data.integrationStatus?.googlePlaces?.connected ? '연결됨' : data.integrationStatus?.googlePlaces?.configured ? '연결 오류' : '키 필요'}</span>
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
+      <div class="route-context">
+        <strong>${data.itinerary.planning.travelerCount}명 · ${escapeHtml(data.itinerary.planning.transportLabel)}</strong>
+        <span>${data.itinerary.planning.accommodation
+          ? `숙소 ${escapeHtml(data.itinerary.planning.accommodation.name)}에서 출발·복귀 · 반경 ${data.itinerary.planning.maxDistanceFromAccommodationKm}km 이내`
+          : '숙소를 저장하면 숙소 출발·복귀 동선으로 다시 구성합니다.'}</span>
+        ${data.itinerary.planning.seatWarning ? `<small>⚠️ ${escapeHtml(data.itinerary.planning.seatWarning)}</small>` : ''}
+      </div>
       ${data.kakaoMap?.configured && hasKakaoMapPlaces ? `
         <div class="course-map-actions">
           <button class="secondary" id="toggleCourseMapBtn">카카오맵으로 코스 보기</button>
@@ -506,19 +580,23 @@ async function loadRecommendations(roomId) {
                       <div class="itinerary-content">
                         <span>${escapeHtml(stop.title)}</span>
                         <strong>${escapeHtml(stop.place.name)}</strong>
-                        <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · 이전 장소에서 직선 약 ${stop.travelKmFromPrevious}km` : ''}</small>
+                        <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · ${stop.travelOrigin === 'accommodation' ? '숙소에서' : '이전 장소에서'} 직선 약 ${stop.travelKmFromPrevious}km · ${escapeHtml(data.itinerary.planning.transportLabel)} ${travelMinutesLabel(stop.travelMinutesFromPrevious)}` : ''}</small>
                         <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">${escapeHtml(placeLinkLabel(stop.place))} →</a>
                       </div>
                     </div>
                   `).join('')}
                 </div>
+                ${day.returnKmToAccommodation !== null ? `<div class="itinerary-return">↩ 숙소 복귀 직선 약 ${day.returnKmToAccommodation}km · ${travelMinutesLabel(day.returnMinutesToAccommodation)} · 하루 이동 예상 ${day.estimatedTravelKm}km</div>` : ''}
               ` : '<p class="itinerary-empty">추천 장소를 더 불러오면 이 날짜의 코스를 채울 수 있어요.</p>'}
             </div>
           `).join('')}
         </section>
       ` : ''}
-      <h3 class="place-list-title">취향 기반 후보 장소</h3>
-      <div class="recommendation-grid">
+      <div class="place-list-heading">
+        <h3 class="place-list-title">취향 기반 후보 장소 <span>${data.items.length}곳</span></h3>
+        <button class="ghost small" id="toggleCandidatePlacesBtn" aria-expanded="false" aria-controls="candidatePlaces">펼쳐보기</button>
+      </div>
+      <div class="recommendation-grid" id="candidatePlaces" hidden>
         ${data.items.map(item => {
           const mapUrl = placeLink(item);
           return `
@@ -561,6 +639,14 @@ async function loadRecommendations(roomId) {
         }
       };
     }
+    const candidateButton = el('#toggleCandidatePlacesBtn');
+    const candidatePlaces = el('#candidatePlaces');
+    candidateButton.onclick = () => {
+      const willOpen = candidatePlaces.hidden;
+      candidatePlaces.hidden = !willOpen;
+      candidateButton.setAttribute('aria-expanded', String(willOpen));
+      candidateButton.textContent = willOpen ? '접기' : '펼쳐보기';
+    };
   } catch (error) {
     card.innerHTML = `
       <h2>📍 맞춤 방문 장소</h2>

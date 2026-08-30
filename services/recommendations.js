@@ -167,13 +167,57 @@ function addDaysToDate(date, days) {
   return result.toISOString().slice(0, 10);
 }
 
-function buildItinerary(places, selectedDate = null, nights = 1) {
+function normalizeTripPlanning(options = {}) {
+  const travelerCount = Number.isInteger(options.travelerCount)
+    ? Math.min(Math.max(options.travelerCount, 1), 30)
+    : 1;
+  const requestedVehicleCount = Number.isInteger(options.vehicleCount)
+    ? Math.min(Math.max(options.vehicleCount, 0), 10)
+    : 0;
+  const transportMode = options.transportMode === 'car' && requestedVehicleCount > 0 ? 'car' : 'public';
+  const vehicleCount = transportMode === 'car' ? requestedVehicleCount : 0;
+  const accommodation = options.accommodation
+    && Number.isFinite(Number(options.accommodation.mapX))
+    && Number.isFinite(Number(options.accommodation.mapY))
+    ? options.accommodation
+    : null;
+  const seatCapacity = vehicleCount * 5;
+
+  return {
+    travelerCount,
+    transportMode,
+    transportLabel: transportMode === 'car' ? `차량 ${vehicleCount}대` : '대중교통·도보',
+    vehicleCount,
+    seatCapacity,
+    seatWarning: transportMode === 'car' && seatCapacity < travelerCount
+      ? `차량당 5명 기준으로 ${travelerCount - seatCapacity}명의 좌석이 부족할 수 있습니다.`
+      : null,
+    accommodation,
+    maxDistanceFromAccommodationKm: transportMode === 'car' ? 50 : 12,
+  };
+}
+
+function estimateTravelMinutes(distance, transportMode) {
+  if (!Number.isFinite(distance)) return null;
+  const averageSpeedKmH = transportMode === 'car' ? 35 : 18;
+  const overheadMinutes = transportMode === 'car' ? 8 : 12;
+  return Math.max(5, Math.round((distance / averageSpeedKmH) * 60 + overheadMinutes));
+}
+
+function buildItinerary(places, selectedDate = null, nights = 1, options = {}) {
+  const planning = normalizeTripPlanning(options);
   const used = new Set();
   const isCafe = place => ['CE7', 'TOUR_CAFE'].includes(place.categoryCode);
   const isRestaurant = place => ['FD6', 'TOUR_39'].includes(place.categoryCode);
-  const experiences = places.filter(place => !isRestaurant(place) && !isCafe(place));
-  const restaurants = places.filter(isRestaurant);
-  const cafes = places.filter(isCafe);
+  const routePlaces = planning.accommodation
+    ? places.filter(place => {
+      const distance = distanceKm(planning.accommodation, place);
+      return distance !== null && distance <= planning.maxDistanceFromAccommodationKm;
+    })
+    : places;
+  const experiences = routePlaces.filter(place => !isRestaurant(place) && !isCafe(place));
+  const restaurants = routePlaces.filter(isRestaurant);
+  const cafes = routePlaces.filter(isCafe);
   const slots = [
     { time: '10:30', title: '취향 스폿', candidates: experiences },
     { time: '12:30', title: '점심 맛집', candidates: restaurants },
@@ -187,11 +231,11 @@ function buildItinerary(places, selectedDate = null, nights = 1) {
     const stops = [];
     for (const slot of slots) {
       const available = slot.candidates.filter(place => !used.has(place.id));
-      const fallback = places.filter(place => !used.has(place.id));
+      const fallback = routePlaces.filter(place => !used.has(place.id));
       const pool = available.length ? available : fallback;
       if (!pool.length) continue;
 
-      const previous = stops[stops.length - 1]?.place;
+      const previous = stops[stops.length - 1]?.place || planning.accommodation;
       const ranked = pool.map((place, index) => ({ place, index, distance: previous ? distanceKm(previous, place) : null }));
       ranked.sort((a, b) => {
         if (a.distance === null && b.distance === null) return a.index - b.index;
@@ -202,18 +246,39 @@ function buildItinerary(places, selectedDate = null, nights = 1) {
 
       const chosen = ranked[0];
       used.add(chosen.place.id);
+      const distanceFromAccommodation = planning.accommodation
+        ? distanceKm(planning.accommodation, chosen.place)
+        : null;
       stops.push({
         time: slot.time,
         title: slot.title,
         travelKmFromPrevious: chosen.distance === null ? null : Math.round(chosen.distance * 10) / 10,
+        travelMinutesFromPrevious: estimateTravelMinutes(chosen.distance, planning.transportMode),
+        travelOrigin: stops.length ? 'previous' : planning.accommodation ? 'accommodation' : null,
+        distanceKmFromAccommodation: distanceFromAccommodation === null
+          ? null
+          : Math.round(distanceFromAccommodation * 10) / 10,
         place: chosen.place,
       });
     }
+
+    const lastPlace = stops[stops.length - 1]?.place;
+    const returnDistance = planning.accommodation && lastPlace
+      ? distanceKm(lastPlace, planning.accommodation)
+      : null;
+    const traveledDistance = stops.reduce((sum, stop) => sum + (stop.travelKmFromPrevious || 0), 0)
+      + (returnDistance || 0);
+    const traveledMinutes = stops.reduce((sum, stop) => sum + (stop.travelMinutesFromPrevious || 0), 0)
+      + (estimateTravelMinutes(returnDistance, planning.transportMode) || 0);
 
     days.push({
       dayNumber: dayIndex + 1,
       date: selectedDate ? addDaysToDate(selectedDate, dayIndex) : null,
       stops,
+      returnKmToAccommodation: returnDistance === null ? null : Math.round(returnDistance * 10) / 10,
+      returnMinutesToAccommodation: estimateTravelMinutes(returnDistance, planning.transportMode),
+      estimatedTravelKm: Math.round(traveledDistance * 10) / 10,
+      estimatedTravelMinutes: traveledMinutes,
     });
   }
 
@@ -221,6 +286,7 @@ function buildItinerary(places, selectedDate = null, nights = 1) {
     startDate: selectedDate,
     endDate: selectedDate ? addDaysToDate(selectedDate, cleanNights) : null,
     nights: cleanNights,
+    planning,
     days,
   };
 }
@@ -231,5 +297,6 @@ module.exports = {
   buildItinerary,
   buildFallbackRecommendations,
   normalizePreferenceIds,
+  normalizeTripPlanning,
   rankTourItems,
 };
