@@ -195,6 +195,7 @@ async function renderRoomDetail() {
 
   const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
   const me = members.find(m => m.id === state.user.id);
+  const planningSectionsOpen = room.status !== 'decided' ? 'open' : '';
   localSelectedDates = new Set(me ? me.availability : []);
 
   if (!calendarCursor) {
@@ -219,7 +220,7 @@ async function renderRoomDetail() {
 
     ${room.status === 'decided' ? renderResultCard(room) : ''}
 
-    <details class="card collapsible-card" open>
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">인원과 이동수단, 숙소를 기준으로 하루 이동 범위와 방문 순서를 조정해요. 현재 참여 멤버는 ${members.length}명입니다.</p>
@@ -256,7 +257,7 @@ async function renderRoomDetail() {
       </div>
     </details>
 
-    <details class="card collapsible-card" open>
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>✨ 내 여행 취향</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">최대 3개를 골라주세요. 멤버들의 선택을 합쳐 방문 장소를 추천해요.</p>
@@ -272,7 +273,7 @@ async function renderRoomDetail() {
       </div>
     </details>
 
-    <details class="card collapsible-card" open>
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>📅 가능한 날짜 표시하기</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 굵은 테두리는 가장 많은 인원이 가능한 날짜예요.</p>
@@ -300,7 +301,7 @@ async function renderRoomDetail() {
       </div>
     </details>
 
-    <details class="card collapsible-card" open>
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👗 드레스 코드 입력하기</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">원하는 드레스 코드를 자유롭게 적어주세요. (예: 하와이안 셔츠, 전신 블랙 등)</p>
@@ -309,7 +310,7 @@ async function renderRoomDetail() {
       </div>
     </details>
 
-    <details class="card collapsible-card">
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👥 참여 멤버 (${members.length}명)</h2></summary>
       <div class="collapsible-card-content">
       <ul class="member-list">
@@ -324,7 +325,7 @@ async function renderRoomDetail() {
     </details>
 
     ${isHost ? `
-      <details class="card collapsible-card" open>
+      <details class="card collapsible-card" ${planningSectionsOpen}>
         <summary><h2>🎲 여행지 & 드레스코드 추첨</h2></summary>
         <div class="collapsible-card-content">
         <p class="desc">모든 인원이 다 모였다면, 지금 랜덤으로 여행지와 드레스코드를 뽑아보세요!</p>
