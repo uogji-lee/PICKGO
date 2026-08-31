@@ -92,7 +92,7 @@ function createNaverLocalClient(options = {}) {
     return writeCache(cacheKey, Array.isArray(json.items) ? json.items : []);
   }
 
-  async function getPersonalizedPlaces(regionName, votes) {
+  async function getPersonalizedPlaces(regionName, votes, customPreferences = []) {
     const rankedPreferences = Object.entries(votes || {})
       .filter(([id, count]) => SEARCH_DEFINITIONS[id] && Number(count) > 0)
       .sort((a, b) => b[1] - a[1])
@@ -100,9 +100,21 @@ function createNaverLocalClient(options = {}) {
       .slice(0, 2);
     const effectivePreferences = rankedPreferences.length ? rankedPreferences : ['activity', 'culture'];
     const searchIds = [...new Set([...effectivePreferences, 'food', 'cafe'])].slice(0, 4);
+    const searchTasks = searchIds.map(preferenceId => ({
+      preferenceId,
+      customKeyword: null,
+      definition: SEARCH_DEFINITIONS[preferenceId],
+    }));
+    for (const customPreference of customPreferences.slice(0, 2)) {
+      searchTasks.push({
+        preferenceId: null,
+        customKeyword: customPreference.keyword,
+        definition: { keyword: customPreference.keyword, categoryCode: '', label: `기타 취향: ${customPreference.keyword}` },
+      });
+    }
 
-    const settled = await Promise.allSettled(searchIds.map(async preferenceId => {
-      const definition = SEARCH_DEFINITIONS[preferenceId];
+    const settled = await Promise.allSettled(searchTasks.map(async task => {
+      const { definition, preferenceId, customKeyword } = task;
       const items = await searchLocal(`${regionName} ${definition.keyword}`);
       return items.map((item, index) => {
         const name = stripHtml(item.title);
@@ -122,6 +134,7 @@ function createNaverLocalClient(options = {}) {
           sourceLabel: '네이버 지역검색',
           reason: `${definition.label} · 네이버 리뷰순 검색 결과`,
           preferenceId,
+          customKeyword,
           rank: index,
         };
       });

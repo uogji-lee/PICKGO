@@ -10,10 +10,14 @@ const db = require('./db');
 const regions = require('./data/regions');
 const {
   PREFERENCES,
+  aggregateCustomPreferences,
   aggregatePreferences,
   buildFallbackRecommendations,
   buildItinerary,
+  interpretCustomPreference,
+  normalizeCustomPreference,
   normalizePreferenceIds,
+  scorePlacesByPreferences,
 } = require('./services/recommendations');
 const { createKakaoLocalClient } = require('./services/kakaoLocal');
 const { createNaverLocalClient } = require('./services/naverLocal');
@@ -185,7 +189,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.availability_json, m.dresscode, m.preferences_json
+    SELECT u.id, u.nickname, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ?
   `).all(room.id).map(m => ({
@@ -193,7 +197,9 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     nickname: m.nickname,
     availability: parseStringArray(m.availability_json),
     dresscode: m.dresscode || null,
-    preferences: normalizePreferenceIds(parseStringArray(m.preferences_json))
+    preferences: normalizePreferenceIds(parseStringArray(m.preferences_json)),
+    customPreference: normalizeCustomPreference(m.custom_preference),
+    customPreferenceKeywords: interpretCustomPreference(m.custom_preference),
   }));
 
   // 날짜별 가능 인원 집계
@@ -281,17 +287,18 @@ app.post('/api/rooms/:id/preferences', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
-  const { preferences } = req.body || {};
+  const { preferences, customPreference } = req.body || {};
   if (!Array.isArray(preferences)) return res.status(400).json({ error: 'preferences 배열이 필요합니다.' });
 
   const clean = normalizePreferenceIds(preferences);
+  const cleanCustomPreference = normalizeCustomPreference(customPreference);
   if (clean.length !== new Set(preferences.map(String)).size) {
     return res.status(400).json({ error: '여행 취향은 제공된 항목 중 최대 3개까지 선택할 수 있습니다.' });
   }
 
-  db.prepare('UPDATE room_members SET preferences_json = ? WHERE room_id = ? AND user_id = ?')
-    .run(JSON.stringify(clean), room.id, req.user.id);
-  res.json({ ok: true, preferences: clean });
+  db.prepare('UPDATE room_members SET preferences_json = ?, custom_preference = ? WHERE room_id = ? AND user_id = ?')
+    .run(JSON.stringify(clean), cleanCustomPreference || null, room.id, req.user.id);
+  res.json({ ok: true, preferences: clean, customPreference: cleanCustomPreference });
 });
 
 app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
@@ -407,8 +414,9 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
   if (!region) return res.status(409).json({ error: '여행지를 먼저 추첨해주세요.' });
 
-  const memberRows = db.prepare('SELECT preferences_json FROM room_members WHERE room_id = ?').all(room.id);
+  const memberRows = db.prepare('SELECT preferences_json, custom_preference FROM room_members WHERE room_id = ?').all(room.id);
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
+  const customPreferences = aggregateCustomPreferences(memberRows.map(member => member.custom_preference));
   const accommodation = room.accommodation_map_x && room.accommodation_map_y ? {
     name: room.accommodation_name || '숙소',
     address: room.accommodation_address || '',
@@ -431,6 +439,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       const itineraryPlaceCount = Math.min(((room.trip_nights ?? 1) + 1) * 4, 32);
       tourItems = await tourApi.getRecommendations(region, votes, itineraryPlaceCount, {
         tripDate: room.selected_date,
+        customPreferences,
       });
       if (tourItems.length) {
         tourApiConnected = true;
@@ -453,7 +462,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   if (kakaoLocal.isConfigured()) {
     try {
       const anchor = accommodation || tourItems.find(item => item.mapX && item.mapY) || null;
-      kakaoItems = await kakaoLocal.getPersonalizedPlaces(region.name, votes, anchor);
+      kakaoItems = await kakaoLocal.getPersonalizedPlaces(region.name, votes, anchor, customPreferences);
       if (kakaoItems.length) {
         kakaoLocalConnected = true;
         providerLabels.push('카카오맵');
@@ -469,7 +478,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   if (naverLocal.isConfigured()) {
     try {
-      naverItems = await naverLocal.getPersonalizedPlaces(region.name, votes);
+      naverItems = await naverLocal.getPersonalizedPlaces(region.name, votes, customPreferences);
       if (naverItems.length) {
         naverLocalConnected = true;
         providerLabels.push('네이버 지역검색');
@@ -482,7 +491,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
   if (googlePlaces.isConfigured()) {
     try {
-      googleItems = await googlePlaces.getPersonalizedPlaces(region.name, votes);
+      googleItems = await googlePlaces.getPersonalizedPlaces(region.name, votes, customPreferences);
       if (googleItems.length) {
         googlePlacesConnected = true;
         providerLabels.push('Google Maps');
@@ -500,8 +509,11 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     if (seenPlaces.has(key)) return false;
     seenPlaces.add(key);
     return true;
-  }).slice(0, 40);
-  const itinerary = buildItinerary(items, room.selected_date, room.trip_nights ?? 1, {
+  });
+  const scoredItems = scorePlacesByPreferences(items, votes, customPreferences)
+    .sort((a, b) => b.preferenceScore - a.preferenceScore)
+    .slice(0, 40);
+  const itinerary = buildItinerary(scoredItems, room.selected_date, room.trip_nights ?? 1, {
     travelerCount: room.traveler_count ?? 1,
     transportMode: room.transport_mode,
     vehicleCount: room.vehicle_count ?? 0,
@@ -534,6 +546,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       javascriptKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
     },
     preferences: PREFERENCES.map(({ id, label }) => ({ id, label, votes: votes[id] || 0 })),
+    customPreferences,
     tripSettings: {
       travelerCount: room.traveler_count ?? 1,
       transportMode: room.transport_mode === 'car' ? 'car' : 'public',
@@ -545,7 +558,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       } : null,
     },
     itinerary,
-    items,
+    items: scoredItems,
   });
 });
 

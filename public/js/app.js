@@ -260,7 +260,7 @@ async function renderRoomDetail() {
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>✨ 내 여행 취향</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">최대 3개를 골라주세요. 멤버들의 선택을 합쳐 방문 장소를 추천해요.</p>
+      <p class="desc">최대 3개를 골라주세요. 같은 취향을 선택한 인원이 많을수록 코스에 더 강하게 반영돼요.</p>
       <div class="preference-grid" id="preferenceGrid">
         ${preferenceOptions.map(option => `
           <label class="preference-option ${(me?.preferences || []).includes(option.id) ? 'selected' : ''}">
@@ -269,6 +269,12 @@ async function renderRoomDetail() {
           </label>
         `).join('')}
       </div>
+      <label class="custom-preference-field">
+        <span>기타 취향</span>
+        <input type="text" id="customPreferenceInput" maxlength="80" placeholder="예: 조용한 산책, 인생샷 카페, 반려견 동반" value="${escapeHtml(me?.customPreference || '')}" />
+        <small>자유롭게 적으면 핵심 의도를 찾아 장소 검색과 일정 우선순위에 반영합니다.</small>
+        ${(me?.customPreferenceKeywords || []).length ? `<small class="interpreted-preference">이해한 키워드: ${me.customPreferenceKeywords.map(escapeHtml).join(', ')}</small>` : ''}
+      </label>
       <button class="block secondary" id="savePreferencesBtn">내 취향 저장</button>
       </div>
     </details>
@@ -317,7 +323,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} ${m.id === room.hostUserId ? '<span class="badge host">방장</span>' : ''}</span>
-            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개 · 가능일 ${m.availability.length}개</span>
+            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개</span>
           </li>
         `).join('')}
       </ul>
@@ -411,8 +417,9 @@ async function renderRoomDetail() {
 
   el('#savePreferencesBtn').onclick = async () => {
     const preferences = [...document.querySelectorAll('#preferenceGrid input:checked')].map(input => input.value);
+    const customPreference = el('#customPreferenceInput').value.trim();
     try {
-      await api(`/rooms/${room.id}/preferences`, { method: 'POST', body: { preferences } });
+      await api(`/rooms/${room.id}/preferences`, { method: 'POST', body: { preferences, customPreference } });
       render();
     } catch (e) { alert(e.message); }
   };
@@ -541,6 +548,11 @@ async function loadRecommendations(roomId) {
       .sort((a, b) => b.votes - a.votes)
       .map(preference => `${escapeHtml(preference.label)} ${preference.votes}표`)
       .join(' · ');
+    const customVoteSummary = (data.customPreferences || [])
+      .slice(0, 4)
+      .map(preference => `기타 “${escapeHtml(preference.keyword)}” ${preference.votes}표`)
+      .join(' · ');
+    const combinedPreferenceSummary = [voteSummary, customVoteSummary].filter(Boolean).join(' · ');
     const notices = data.notices || (data.notice ? [data.notice] : []);
     const itineraryDays = data.itinerary?.days || [];
     const hasKakaoMapPlaces = itineraryDays.some(day => day.stops.some(stop =>
@@ -555,7 +567,7 @@ async function loadRecommendations(roomId) {
     card.innerHTML = `
       <div class="recommendation-heading">
         <div>
-          <p class="desc">${voteSummary || '아직 취향 선택이 없어 다양한 장소를 추천했어요.'}</p>
+          <p class="desc">${combinedPreferenceSummary || '아직 취향 선택이 없어 다양한 장소를 추천했어요.'}</p>
         </div>
         <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
       </div>

@@ -32,12 +32,18 @@ test('카카오 로컬 API에 REST 키를 헤더로 보내고 장소를 정규�
     },
   });
 
-  const places = await client.getPersonalizedPlaces('서울 종로구', { culture: 2 }, { mapX: '126.98', mapY: '37.57' });
-  assert.equal(requests.length, 3);
+  const places = await client.getPersonalizedPlaces(
+    '서울 종로구',
+    { culture: 2 },
+    { mapX: '126.98', mapY: '37.57' },
+    [{ keyword: '반려동물 동반', votes: 2 }]
+  );
+  assert.equal(requests.length, 4);
   assert.equal(requests[0].options.headers.Authorization, 'KakaoAK secret-rest-key');
   assert.match(requests[0].url, /query=/);
   assert.match(requests[0].url, /radius=20000/);
   assert.equal(places[0].source, 'kakao');
   assert.equal(places.some(place => place.categoryCode === 'FD6'), true);
   assert.equal(places.some(place => place.categoryCode === 'CE7'), true);
+  assert.equal(places.some(place => place.customKeyword === '반려동물 동반'), true);
 });

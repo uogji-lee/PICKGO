@@ -2,10 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  aggregateCustomPreferences,
   aggregatePreferences,
   buildItinerary,
+  interpretCustomPreference,
   normalizePreferenceIds,
   rankTourItems,
+  scorePlacesByPreferences,
 } = require('../services/recommendations');
 const { createTourApiClient, parseRegionName } = require('../services/tourApi');
 
@@ -96,6 +99,33 @@ test('차량 수와 여행 인원으로 좌석 부족 안내를 만든다', () =
   assert.equal(itinerary.planning.transportLabel, '차량 1대');
   assert.equal(itinerary.planning.seatCapacity, 5);
   assert.match(itinerary.planning.seatWarning, /3명/);
+});
+
+test('선택 인원이 많은 취향 장소를 일정에서 먼저 배치한다', () => {
+  const places = [
+    { id: 'culture', name: '도심 미술관', categoryCode: 'TOUR_14', preferenceId: 'culture' },
+    { id: 'nature', name: '바다 산책길', categoryCode: 'TOUR_12', preferenceId: 'nature' },
+  ];
+  const scored = scorePlacesByPreferences(places, { nature: 3, culture: 1 });
+  const itinerary = buildItinerary(scored, '2026-09-05', 0);
+
+  assert.equal(itinerary.days[0].stops[0].place.id, 'nature');
+  assert.equal(itinerary.days[0].stops[0].place.preferenceVotes, 3);
+  assert.match(itinerary.days[0].stops[0].place.reason, /그룹 3표/);
+});
+
+test('기타 취향 문장에서 의도를 찾고 멤버별 키워드 표를 집계한다', () => {
+  const interpreted = interpretCustomPreference('사람이 적고 조용한 인생샷 장소');
+  assert.equal(interpreted.includes('한적한 곳'), true);
+  assert.equal(interpreted.includes('사진 명소'), true);
+  const aggregated = aggregateCustomPreferences([
+    '조용하고 한적한 곳에서 산책',
+    '사람 적은 조용한 카페',
+    '반려견 동반 장소',
+  ]);
+
+  assert.deepEqual(aggregated.find(item => item.keyword === '한적한 곳'), { keyword: '한적한 곳', votes: 2 });
+  assert.deepEqual(aggregated.find(item => item.keyword === '반려동물 동반'), { keyword: '반려동물 동반', votes: 1 });
 });
 
 test('여러 멤버의 여행 취향을 투표수로 집계한다', () => {

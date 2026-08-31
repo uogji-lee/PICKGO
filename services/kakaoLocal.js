@@ -75,7 +75,7 @@ function createKakaoLocalClient(options = {}) {
     return writeCache(cacheKey, Array.isArray(json.documents) ? json.documents : []);
   }
 
-  async function getPersonalizedPlaces(regionName, votes, anchor = null) {
+  async function getPersonalizedPlaces(regionName, votes, anchor = null, customPreferences = []) {
     const rankedPreferences = Object.entries(votes || {})
       .filter(([id, count]) => SEARCH_DEFINITIONS[id] && Number(count) > 0)
       .sort((a, b) => b[1] - a[1])
@@ -84,8 +84,21 @@ function createKakaoLocalClient(options = {}) {
 
     const effectivePreferences = rankedPreferences.length ? rankedPreferences : ['nature', 'culture'];
     const searchIds = [...new Set([...effectivePreferences, 'food', 'cafe'])].slice(0, 4);
-    const settled = await Promise.allSettled(searchIds.map(async preferenceId => {
-      const definition = SEARCH_DEFINITIONS[preferenceId];
+    const searchTasks = searchIds.map(preferenceId => ({
+      preferenceId,
+      customKeyword: null,
+      definition: SEARCH_DEFINITIONS[preferenceId],
+    }));
+    for (const customPreference of customPreferences.slice(0, 2)) {
+      searchTasks.push({
+        preferenceId: null,
+        customKeyword: customPreference.keyword,
+        definition: { keyword: customPreference.keyword, categoryCode: null, label: `기타 취향: ${customPreference.keyword}` },
+      });
+    }
+
+    const settled = await Promise.allSettled(searchTasks.map(async task => {
+      const { definition, preferenceId, customKeyword } = task;
       const params = {
         query: `${regionName} ${definition.keyword}`,
         category_group_code: definition.categoryCode,
@@ -114,6 +127,7 @@ function createKakaoLocalClient(options = {}) {
         sourceLabel: '카카오맵',
         reason: `${definition.label} 검색 결과${document.distance ? ` · 기준 장소에서 약 ${Math.round(Number(document.distance) / 100) / 10}km` : ''}`,
         preferenceId,
+        customKeyword,
         rank: index,
       }));
     }));

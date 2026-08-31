@@ -21,6 +21,21 @@ const CONTENT_TYPE_LABELS = Object.freeze({
 const TRENDY_KEYWORDS = Object.freeze(['카페', '아트', '벽화', '거리', '전망대', '복합문화', '테마', '공방', '야시장', '통닭', '놀이터', '쇼핑몰']);
 const QUIET_CULTURE_KEYWORDS = Object.freeze(['박물관', '향교', '선생묘', '사찰', '암(', '도서관']);
 const GENERIC_FACILITY_KEYWORDS = Object.freeze(['주민편익시설', '체육문화센터', '어린이교통공원']);
+const CUSTOM_PREFERENCE_STOP_WORDS = new Set([
+  '가고', '가기', '가고싶어', '가고싶어요', '싶어', '싶어요', '좋아', '좋아요', '원해', '원해요',
+  '여행', '장소', '코스', '추천', '하는', '하고', '있는', '없는', '같은', '위주', '중심', '정도',
+  '사람', '사람이', '적고', '적은', '조용한', '조용하고', '한적한', '한적하고', '곳에서',
+]);
+const CUSTOM_INTENT_RULES = Object.freeze([
+  { pattern: /조용|한적|붐비지|사람\s*(적|없)/, keyword: '한적한 곳' },
+  { pattern: /사진|인생샷|포토|감성/, keyword: '사진 명소' },
+  { pattern: /아이|아기|어린이|가족/, keyword: '가족 체험' },
+  { pattern: /반려|강아지|애견|반려견/, keyword: '반려동물 동반' },
+  { pattern: /야경|밤풍경|밤 산책/, keyword: '야경 명소' },
+  { pattern: /비오는|비 오는|우천|실내/, keyword: '실내 놀거리' },
+  { pattern: /술|맥주|와인|칵테일/, keyword: '술집' },
+  { pattern: /로컬|현지인|관광객 없는/, keyword: '현지인 맛집' },
+]);
 
 const preferenceById = new Map(PREFERENCES.map(preference => [preference.id, preference]));
 
@@ -37,6 +52,41 @@ function aggregatePreferences(memberPreferences) {
     }
   }
   return votes;
+}
+
+function normalizeCustomPreference(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function interpretCustomPreference(value) {
+  const text = normalizeCustomPreference(value);
+  if (!text) return [];
+
+  const keywords = [];
+  for (const rule of CUSTOM_INTENT_RULES) {
+    if (rule.pattern.test(text)) keywords.push(rule.keyword);
+  }
+
+  const tokens = text
+    .toLocaleLowerCase('ko')
+    .match(/[0-9a-z가-힣]{2,15}/g) || [];
+  for (const token of tokens) {
+    if (!CUSTOM_PREFERENCE_STOP_WORDS.has(token)) keywords.push(token);
+  }
+  return [...new Set(keywords)].slice(0, 5);
+}
+
+function aggregateCustomPreferences(memberTexts) {
+  const counts = new Map();
+  for (const text of memberTexts || []) {
+    for (const keyword of interpretCustomPreference(text)) {
+      counts.set(keyword, (counts.get(keyword) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([keyword, votes]) => ({ keyword, votes }))
+    .sort((a, b) => b.votes - a.votes || a.keyword.localeCompare(b.keyword, 'ko'))
+    .slice(0, 8);
 }
 
 function safeWebUrl(value) {
@@ -58,7 +108,7 @@ function isCafeTitle(value) {
   return /카페|커피|로스터|베이커리|디저트|브런치|티룸|찻집|다방/.test(String(value || ''));
 }
 
-function rankTourItems(items, votes, limit = 6) {
+function rankTourItems(items, votes, limit = 6, customPreferences = []) {
   const effectiveVotes = getEffectiveVotes(votes);
   const seen = new Set();
 
@@ -68,6 +118,8 @@ function rankTourItems(items, votes, limit = 6) {
       const contentTypeId = String(item.contenttypeid || '');
       const searchable = `${item.title || ''} ${item.addr1 || ''} ${item.addr2 || ''}`;
       const matches = [];
+      const matchedPreferenceIds = [];
+      const matchedCustomKeywords = [];
       let score = 0;
 
       for (const preference of PREFERENCES) {
@@ -78,7 +130,16 @@ function rankTourItems(items, votes, limit = 6) {
         const keywordMatch = preference.keywords.some(keyword => searchable.includes(keyword));
         if (typeMatch || keywordMatch) {
           matches.push(preference.label);
+          matchedPreferenceIds.push(preference.id);
           score += voteCount * (typeMatch ? 10 : 3);
+        }
+      }
+
+      for (const customPreference of customPreferences || []) {
+        if (searchable.toLocaleLowerCase('ko').includes(customPreference.keyword.toLocaleLowerCase('ko'))) {
+          matches.push(`기타: ${customPreference.keyword}`);
+          matchedCustomKeywords.push(customPreference.keyword);
+          score += Number(customPreference.votes || 0) * 8;
         }
       }
 
@@ -108,6 +169,8 @@ function rankTourItems(items, votes, limit = 6) {
         source: 'tourapi',
         sourceLabel: '한국관광공사',
         reason: matches.length ? `${matches.slice(0, 2).join(' · ')} 취향 반영` : '선정 지역의 인기 여행 정보',
+        preferenceIds: matchedPreferenceIds,
+        customKeywords: matchedCustomKeywords,
         score,
         modifiedTime: String(item.modifiedtime || ''),
       };
@@ -121,6 +184,60 @@ function rankTourItems(items, votes, limit = 6) {
     .sort((a, b) => b.score - a.score || b.modifiedTime.localeCompare(a.modifiedTime) || a.name.localeCompare(b.name, 'ko'))
     .slice(0, limit)
     .map(({ modifiedTime, score, ...item }) => item);
+}
+
+function scorePlacesByPreferences(items, votes, customPreferences = []) {
+  const effectiveVotes = votes || {};
+  return items.map(place => {
+    const searchable = `${place.name || ''} ${place.category || ''} ${place.address || ''} ${place.reason || ''}`
+      .toLocaleLowerCase('ko');
+    const matchedIds = new Set(Array.isArray(place.preferenceIds) ? place.preferenceIds : []);
+    if (place.preferenceId && preferenceById.has(place.preferenceId)) matchedIds.add(place.preferenceId);
+
+    for (const preference of PREFERENCES) {
+      if (!Number(effectiveVotes[preference.id] || 0)) continue;
+      if (preference.keywords.some(keyword => searchable.includes(keyword.toLocaleLowerCase('ko')))) {
+        matchedIds.add(preference.id);
+      }
+    }
+
+    let preferenceScore = 0;
+    let preferenceVotes = 0;
+    const labels = [];
+    for (const id of matchedIds) {
+      const voteCount = Number(effectiveVotes[id] || 0);
+      if (!voteCount) continue;
+      preferenceScore += voteCount * 10;
+      preferenceVotes += voteCount;
+      labels.push(preferenceById.get(id)?.label || id);
+    }
+
+    const matchedCustom = new Set(Array.isArray(place.customKeywords) ? place.customKeywords : []);
+    if (place.customKeyword) matchedCustom.add(place.customKeyword);
+    for (const customPreference of customPreferences || []) {
+      if (searchable.includes(customPreference.keyword.toLocaleLowerCase('ko'))) {
+        matchedCustom.add(customPreference.keyword);
+      }
+    }
+    for (const keyword of matchedCustom) {
+      const voteCount = Number(customPreferences.find(item => item.keyword === keyword)?.votes || 0);
+      if (!voteCount) continue;
+      preferenceScore += voteCount * 12;
+      preferenceVotes += voteCount;
+      labels.push(`기타: ${keyword}`);
+    }
+
+    const voteReason = preferenceVotes > 0 ? `그룹 ${preferenceVotes}표 반영` : null;
+    return {
+      ...place,
+      preferenceScore,
+      preferenceVotes,
+      preferenceLabels: [...new Set(labels)],
+      reason: voteReason && !String(place.reason || '').includes(voteReason)
+        ? [place.reason, voteReason].filter(Boolean).join(' · ')
+        : place.reason,
+    };
+  });
 }
 
 function buildFallbackRecommendations(region, _votes, limit = 6) {
@@ -236,8 +353,14 @@ function buildItinerary(places, selectedDate = null, nights = 1, options = {}) {
       if (!pool.length) continue;
 
       const previous = stops[stops.length - 1]?.place || planning.accommodation;
-      const ranked = pool.map((place, index) => ({ place, index, distance: previous ? distanceKm(previous, place) : null }));
+      const ranked = pool.map((place, index) => {
+        const distance = previous ? distanceKm(previous, place) : null;
+        const preferenceScore = Number(place.preferenceScore || 0);
+        const routeScore = preferenceScore - (distance === null ? 0 : Math.min(distance, 60) * 0.75);
+        return { place, index, distance, preferenceScore, routeScore };
+      });
       ranked.sort((a, b) => {
+        if (a.routeScore !== b.routeScore) return b.routeScore - a.routeScore;
         if (a.distance === null && b.distance === null) return a.index - b.index;
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
@@ -293,10 +416,14 @@ function buildItinerary(places, selectedDate = null, nights = 1, options = {}) {
 
 module.exports = {
   PREFERENCES,
+  aggregateCustomPreferences,
   aggregatePreferences,
   buildItinerary,
   buildFallbackRecommendations,
   normalizePreferenceIds,
+  normalizeCustomPreference,
   normalizeTripPlanning,
+  scorePlacesByPreferences,
+  interpretCustomPreference,
   rankTourItems,
 };

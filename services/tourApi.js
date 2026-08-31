@@ -185,6 +185,15 @@ function createTourApiClient(options = {}) {
       keyword: '카페',
       ...codes,
     }));
+    for (const customPreference of (options.customPreferences || []).slice(0, 2)) {
+      calls.push(request('searchKeyword2', {
+        numOfRows,
+        pageNo: 1,
+        arrange: 'Q',
+        keyword: customPreference.keyword,
+        ...codes,
+      }));
+    }
 
     if (Number(votes?.festival) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(options.tripDate || '')) {
       calls.push(request('searchFestival2', {
@@ -201,7 +210,7 @@ function createTourApiClient(options = {}) {
     if (!fulfilled.length) throw results[0]?.reason || new Error('TourAPI에서 장소를 불러오지 못했습니다.');
 
     const rawItems = fulfilled.flatMap(result => asArray(result.value.items?.item));
-    const ranked = rankTourItems(rawItems, votes, 200);
+    const ranked = rankTourItems(rawItems, votes, 200, options.customPreferences || []);
     const experiences = ranked.filter(item => !['TOUR_39', 'TOUR_CAFE'].includes(item.categoryCode));
     const restaurants = ranked.filter(item => item.categoryCode === 'TOUR_39');
     const cafes = ranked.filter(item => item.categoryCode === 'TOUR_CAFE');

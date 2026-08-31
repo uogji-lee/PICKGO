@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS room_members (
   availability_json TEXT NOT NULL DEFAULT '[]',
   dresscode TEXT,
   preferences_json TEXT NOT NULL DEFAULT '[]',
+  custom_preference TEXT,
   joined_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (room_id, user_id),
   FOREIGN KEY (room_id) REFERENCES rooms(id),
@@ -54,6 +55,9 @@ CREATE TABLE IF NOT EXISTS room_members (
 const memberColumns = db.prepare('PRAGMA table_info(room_members)').all();
 if (!memberColumns.some(column => column.name === 'preferences_json')) {
   db.exec("ALTER TABLE room_members ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '[]'");
+}
+if (!memberColumns.some(column => column.name === 'custom_preference')) {
+  db.exec('ALTER TABLE room_members ADD COLUMN custom_preference TEXT');
 }
 
 const roomColumns = db.prepare('PRAGMA table_info(rooms)').all();

@@ -318,6 +318,27 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   background: #fff0ea;
   color: var(--primary-dark);
 }
+.custom-preference-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 14px;
+}
+.custom-preference-field > span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.custom-preference-field input[type=text] { margin-bottom: 0; }
+.custom-preference-field small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.custom-preference-field .interpreted-preference {
+  color: var(--primary-dark);
+  font-weight: 700;
+}
 
 .trip-settings-grid {
   display: grid;

@@ -55,7 +55,7 @@ function createGooglePlacesClient(options = {}) {
     return Array.isArray(json.places) ? json.places : [];
   }
 
-  async function getPersonalizedPlaces(regionName, votes) {
+  async function getPersonalizedPlaces(regionName, votes, customPreferences = []) {
     const rankedPreferences = Object.entries(votes || {})
       .filter(([id, count]) => SEARCH_DEFINITIONS[id] && Number(count) > 0)
       .sort((a, b) => b[1] - a[1])
@@ -63,8 +63,20 @@ function createGooglePlacesClient(options = {}) {
       .slice(0, 1);
     const effectivePreferences = rankedPreferences.length ? rankedPreferences : ['activity'];
     const searchIds = [...new Set([...effectivePreferences, 'food', 'cafe'])];
-    const settled = await Promise.allSettled(searchIds.map(async preferenceId => {
-      const definition = SEARCH_DEFINITIONS[preferenceId];
+    const searchTasks = searchIds.map(preferenceId => ({
+      preferenceId,
+      customKeyword: null,
+      definition: SEARCH_DEFINITIONS[preferenceId],
+    }));
+    for (const customPreference of customPreferences.slice(0, 2)) {
+      searchTasks.push({
+        preferenceId: null,
+        customKeyword: customPreference.keyword,
+        definition: { keyword: customPreference.keyword, categoryCode: '', label: `기타 취향: ${customPreference.keyword}` },
+      });
+    }
+    const settled = await Promise.allSettled(searchTasks.map(async task => {
+      const { definition, preferenceId, customKeyword } = task;
       const places = await searchText(`${regionName} ${definition.keyword}`);
       return places.map((place, index) => ({
         id: `google-${place.id}`,
@@ -82,6 +94,7 @@ function createGooglePlacesClient(options = {}) {
         sourceLabel: 'Google Maps',
         reason: `${definition.label} · Google Places 검색 결과`,
         preferenceId,
+        customKeyword,
         rank: index,
       }));
     }));
