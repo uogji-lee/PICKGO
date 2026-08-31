@@ -219,8 +219,9 @@ async function renderRoomDetail() {
 
     ${room.status === 'decided' ? renderResultCard(room) : ''}
 
-    <div class="card">
-      <h2>🚗 교통·숙소 조건</h2>
+    <details class="card collapsible-card" open>
+      <summary><h2>🚗 교통·숙소 조건</h2></summary>
+      <div class="collapsible-card-content">
       <p class="desc">인원과 이동수단, 숙소를 기준으로 하루 이동 범위와 방문 순서를 조정해요. 현재 참여 멤버는 ${members.length}명입니다.</p>
       ${isHost ? `
         <div class="trip-settings-grid">
@@ -252,10 +253,12 @@ async function renderRoomDetail() {
         </div>
       `}
       ${room.accommodation ? `<p class="desc trip-settings-saved">📍 ${escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
-    </div>
+      </div>
+    </details>
 
-    <div class="card">
-      <h2>✨ 내 여행 취향</h2>
+    <details class="card collapsible-card" open>
+      <summary><h2>✨ 내 여행 취향</h2></summary>
+      <div class="collapsible-card-content">
       <p class="desc">최대 3개를 골라주세요. 멤버들의 선택을 합쳐 방문 장소를 추천해요.</p>
       <div class="preference-grid" id="preferenceGrid">
         ${preferenceOptions.map(option => `
@@ -266,10 +269,12 @@ async function renderRoomDetail() {
         `).join('')}
       </div>
       <button class="block secondary" id="savePreferencesBtn">내 취향 저장</button>
-    </div>
+      </div>
+    </details>
 
-    <div class="card">
-      <h2>📅 가능한 날짜 표시하기</h2>
+    <details class="card collapsible-card" open>
+      <summary><h2>📅 가능한 날짜 표시하기</h2></summary>
+      <div class="collapsible-card-content">
       <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 굵은 테두리는 가장 많은 인원이 가능한 날짜예요.</p>
       <div class="month-nav">
         <button class="ghost small" id="prevMonth">◀</button>
@@ -292,17 +297,21 @@ async function renderRoomDetail() {
         </div>
       ` : ''}
       ${room.selectedDate ? `<p class="desc" style="margin-top:8px">✅ 확정 일정: <strong>${room.selectedDate}${room.selectedEndDate !== room.selectedDate ? ` ~ ${room.selectedEndDate}` : ''} · ${tripLengthLabel(room.tripNights)}</strong></p>` : ''}
-    </div>
+      </div>
+    </details>
 
-    <div class="card">
-      <h2>👗 드레스 코드 입력하기</h2>
+    <details class="card collapsible-card" open>
+      <summary><h2>👗 드레스 코드 입력하기</h2></summary>
+      <div class="collapsible-card-content">
       <p class="desc">원하는 드레스 코드를 자유롭게 적어주세요. (예: 하와이안 셔츠, 전신 블랙 등)</p>
       <input type="text" id="dresscodeInput" placeholder="원하는 드레스 코드" maxlength="40" value="${escapeHtml(me?.dresscode || '')}" />
       <button class="block secondary" id="saveDresscodeBtn">저장</button>
-    </div>
+      </div>
+    </details>
 
-    <div class="card">
-      <h2>👥 참여 멤버 (${members.length}명)</h2>
+    <details class="card collapsible-card">
+      <summary><h2>👥 참여 멤버 (${members.length}명)</h2></summary>
+      <div class="collapsible-card-content">
       <ul class="member-list">
         ${members.map(m => `
           <li>
@@ -311,14 +320,17 @@ async function renderRoomDetail() {
           </li>
         `).join('')}
       </ul>
-    </div>
+      </div>
+    </details>
 
     ${isHost ? `
-      <div class="card">
-        <h2>🎲 여행지 & 드레스코드 추첨</h2>
+      <details class="card collapsible-card" open>
+        <summary><h2>🎲 여행지 & 드레스코드 추첨</h2></summary>
+        <div class="collapsible-card-content">
         <p class="desc">모든 인원이 다 모였다면, 지금 랜덤으로 여행지와 드레스코드를 뽑아보세요!</p>
         <button class="block" id="drawBtn">${room.status === 'decided' ? '다시 추첨하기' : '추첨하기'}</button>
-      </div>
+        </div>
+      </details>
     ` : ''}
   `;
 
@@ -506,10 +518,12 @@ function renderResultCard(room) {
         ${room.selectedDresscode ? `<div class="dresscode-final">드레스코드: ${escapeHtml(room.selectedDresscode)}</div>` : ''}
       </div>
     </div>
-    <div class="card" id="recommendationCard">
-      <h2>📍 맞춤 방문 장소</h2>
-      <p class="desc">멤버들의 여행 취향을 반영해 추천 장소를 불러오는 중...</p>
-    </div>
+    <details class="card collapsible-card" open>
+      <summary><h2>📍 맞춤 방문 장소</h2></summary>
+      <div class="collapsible-card-content" id="recommendationCard">
+        <p class="desc">멤버들의 여행 취향을 반영해 추천 장소를 불러오는 중...</p>
+      </div>
+    </details>
   `;
 }
 
@@ -540,7 +554,6 @@ async function loadRecommendations(roomId) {
     card.innerHTML = `
       <div class="recommendation-heading">
         <div>
-          <h2>📍 맞춤 방문 장소</h2>
           <p class="desc">${voteSummary || '아직 취향 선택이 없어 다양한 장소를 추천했어요.'}</p>
         </div>
         <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
@@ -566,8 +579,9 @@ async function loadRecommendations(roomId) {
         </div>
       ` : ''}
       ${itineraryDays.length ? `
-        <section class="itinerary-section">
-          <h3>🗓️ ${tripLengthLabel(data.itinerary.nights)} 추천 코스</h3>
+        <details class="itinerary-section nested-collapsible" open>
+          <summary><h3>🗓️ ${tripLengthLabel(data.itinerary.nights)} 추천 코스</h3></summary>
+          <div class="itinerary-days">
           ${itineraryDays.map(day => `
             <div class="itinerary-day">
               <h4>${day.dayNumber}일차${day.date ? ` · ${escapeHtml(day.date)}` : ''}</h4>
@@ -590,7 +604,8 @@ async function loadRecommendations(roomId) {
               ` : '<p class="itinerary-empty">추천 장소를 더 불러오면 이 날짜의 코스를 채울 수 있어요.</p>'}
             </div>
           `).join('')}
-        </section>
+          </div>
+        </details>
       ` : ''}
       <div class="place-list-heading">
         <h3 class="place-list-title">취향 기반 후보 장소 <span>${data.items.length}곳</span></h3>
@@ -649,7 +664,6 @@ async function loadRecommendations(roomId) {
     };
   } catch (error) {
     card.innerHTML = `
-      <h2>📍 맞춤 방문 장소</h2>
       <div class="error-msg">${escapeHtml(error.message)}</div>
       <button class="secondary" id="retryRecommendationsBtn">다시 불러오기</button>
     `;
