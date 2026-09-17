@@ -7,7 +7,66 @@
   --text: #2c2521;
   --muted: #8a7f74;
   --available: #ffb199;
+  --input-bg: #ffffff;
+  --soft-bg: #f6f1ea;
+  --soft-bg-2: #f1ece5;
+  --accent-soft: #fff0ea;
+  --accent-soft-hover: #fff3ef;
+  --disabled-bg: #d8cfc6;
+  --error-bg: #fdecea;
+  --error-text: #c0392b;
+  --success-bg: #e9f9ee;
+  --success-text: #1e7e34;
+  --shadow: rgba(0,0,0,0.03);
+  --overlay-bg: rgba(30,22,15,0.55);
   font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --primary: #ff7a5c;
+    --primary-dark: #ff9c7d;
+    --bg: #17140f;
+    --card: #221d17;
+    --border: #382f24;
+    --text: #f3ece3;
+    --muted: #ab9d8f;
+    --available: #8a3f28;
+    --input-bg: #2a231b;
+    --soft-bg: #2a231b;
+    --soft-bg-2: #2f271e;
+    --accent-soft: #3a2418;
+    --accent-soft-hover: #3a2418;
+    --disabled-bg: #4a4136;
+    --error-bg: #3a1f1c;
+    --error-text: #ff8a80;
+    --success-bg: #1c3324;
+    --success-text: #7ee2a8;
+    --shadow: rgba(0,0,0,0.4);
+    --overlay-bg: rgba(0,0,0,0.7);
+  }
+}
+:root[data-theme="dark"] {
+  --primary: #ff7a5c;
+  --primary-dark: #ff9c7d;
+  --bg: #17140f;
+  --card: #221d17;
+  --border: #382f24;
+  --text: #f3ece3;
+  --muted: #ab9d8f;
+  --available: #8a3f28;
+  --input-bg: #2a231b;
+  --soft-bg: #2a231b;
+  --soft-bg-2: #2f271e;
+  --accent-soft: #3a2418;
+  --accent-soft-hover: #3a2418;
+  --disabled-bg: #4a4136;
+  --error-bg: #3a1f1c;
+  --error-text: #ff8a80;
+  --success-bg: #1c3324;
+  --success-text: #7ee2a8;
+  --shadow: rgba(0,0,0,0.4);
+  --overlay-bg: rgba(0,0,0,0.7);
 }
 
 * { box-sizing: border-box; }
@@ -17,6 +76,7 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  transition: background .2s ease, color .2s ease;
 }
 
 .topbar {
@@ -30,6 +90,22 @@ body {
   top: 0;
   z-index: 10;
 }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+}
+.theme-toggle:hover { background: var(--soft-bg); }
 
 .logo {
   font-size: 20px;
@@ -50,6 +126,7 @@ body {
   margin: 0 auto;
   padding: 24px 16px 80px;
 }
+.app.wide { max-width: 980px; }
 
 .card {
   background: var(--card);
@@ -57,7 +134,7 @@ body {
   border-radius: 16px;
   padding: 24px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+  box-shadow: 0 2px 10px var(--shadow);
 }
 
 h1 { font-size: 24px; margin: 0 0 8px; }
@@ -71,7 +148,7 @@ input[type=text], input[type=password] {
   border-radius: 10px;
   font-size: 15px;
   margin-bottom: 12px;
-  background: #fff;
+  background: var(--input-bg);
   color: var(--text);
 }
 
@@ -88,12 +165,12 @@ button {
 }
 button:hover { background: var(--primary-dark); }
 button.secondary {
-  background: #fff;
+  background: var(--card);
   color: var(--primary-dark);
   border: 1px solid var(--primary);
 }
-button.secondary:hover { background: #fff3ef; }
-button:disabled { background: #d8cfc6; cursor: not-allowed; }
+button.secondary:hover { background: var(--accent-soft-hover); }
+button:disabled { background: var(--disabled-bg); cursor: not-allowed; }
 button.block { width: 100%; }
 button.small { padding: 6px 12px; font-size: 13px; }
 button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
@@ -102,16 +179,16 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .tabs button { flex: 1; }
 
 .error-msg {
-  color: #c0392b;
-  background: #fdecea;
+  color: var(--error-text);
+  background: var(--error-bg);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 14px;
   margin-bottom: 12px;
 }
 .success-msg {
-  color: #1e7e34;
-  background: #e9f9ee;
+  color: var(--success-text);
+  background: var(--success-bg);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 14px;
@@ -133,11 +210,11 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f1ece5;
+  background: var(--soft-bg-2);
   color: var(--muted);
   margin-left: 8px;
 }
-.badge.host { background: #fff0ea; color: var(--primary-dark); }
+.badge.host { background: var(--accent-soft); color: var(--primary-dark); }
 
 .room-header {
   display: flex;
@@ -149,7 +226,7 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #f6f1ea;
+  background: var(--soft-bg);
   border-radius: 10px;
   padding: 8px 12px;
   font-size: 14px;
@@ -159,6 +236,18 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-weight: 700;
   letter-spacing: 2px;
   color: var(--primary-dark);
+}
+
+/* ---------- 방 상세: 데스크톱 2단 레이아웃 ---------- */
+.room-grid { display: block; }
+@media (min-width: 860px) {
+  .room-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .room-grid .col { display: flex; flex-direction: column; }
 }
 
 .calendar-grid {
@@ -177,7 +266,7 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   border: 1px solid var(--border);
   font-size: 13px;
   cursor: pointer;
-  background: #fff;
+  background: var(--input-bg);
   position: relative;
 }
 .day-cell.selected {
@@ -239,13 +328,13 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   margin-top: 10px;
   padding: 8px 18px;
   border-radius: 999px;
-  background: #fff0ea;
+  background: var(--accent-soft);
   color: var(--primary-dark);
   font-weight: 700;
 }
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .tag {
-  background: #f6f1ea;
+  background: var(--soft-bg);
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 13px;
@@ -270,3 +359,99 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-weight: 600;
 }
 .link-btn:hover { background: none; }
+
+/* ---------- 로딩 스켈레톤 ---------- */
+.skeleton-card .skeleton-line {
+  height: 16px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, var(--soft-bg) 25%, var(--border) 37%, var(--soft-bg) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+.skeleton-card .skeleton-line:last-child { margin-bottom: 0; width: 60%; }
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ---------- 토스트 ---------- */
+.toast-root {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 500;
+  align-items: center;
+  width: 100%;
+  padding: 0 16px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--text);
+  color: var(--bg);
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity .2s ease, transform .2s ease;
+  max-width: 420px;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-success { background: var(--success-text); color: #12281c; }
+.toast-error { background: var(--error-text); color: #2c0d09; }
+
+/* ---------- 모달 (confirm / prompt 대체) ---------- */
+.modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.modal-root.open { pointer-events: auto; }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.modal-root.open .modal-backdrop { opacity: 1; }
+.modal-box {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  transform: scale(.95);
+  transition: transform .15s ease;
+}
+.modal-root.open .modal-box { transform: scale(1); }
+.modal-box h3 { margin: 0 0 8px; font-size: 17px; }
+.modal-box p { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-actions button { padding: 10px 16px; }
+
+/* ---------- 추첨 연출 오버레이 ---------- */
+.draw-backdrop { flex-direction: column; }
+.draw-box { text-align: center; color: #fff; }
+.draw-label { font-size: 14px; letter-spacing: 1px; opacity: .85; margin-bottom: 16px; }
+.draw-region { font-size: 34px; font-weight: 800; min-height: 44px; }
+.draw-region.landed { animation: draw-pop .5s ease; color: #ffd9a0; }
+@keyframes draw-pop {
+  0% { transform: scale(.8); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.draw-dresscode { margin-top: 14px; font-size: 16px; opacity: .9; min-height: 22px; }

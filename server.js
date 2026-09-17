@@ -96,6 +96,11 @@ app.get('/api/me', optionalAuth, (req, res) => {
   res.json({ user: req.user || null });
 });
 
+// ---------- 지역 정보 (추첨 연출용 경량 목록) ----------
+app.get('/api/regions', (req, res) => {
+  res.json({ regions: regions.map(r => ({ id: r.id, name: r.name })) });
+});
+
 // ---------- 방 생성 / 입장 ----------
 app.post('/api/rooms', auth, (req, res) => {
   const { title } = req.body || {};
