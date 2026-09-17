@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { customAlphabet } = require('nanoid');
 
 const db = require('./db');
+const { registerRoomManagement } = require('./services/roomManagement');
 const regions = require('./data/regions');
 const {
   PREFERENCES,
@@ -156,6 +157,7 @@ app.post('/api/rooms/join', auth, (req, res) => {
   const room = db.prepare('SELECT * FROM rooms WHERE invite_code = ?').get(String(inviteCode).trim().toUpperCase());
   if (!room) return res.status(404).json({ error: '존재하지 않는 초대코드입니다.' });
   const already = db.prepare('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(room.id, req.user.id);
+  if (already && !already.active) return res.status(403).json({ error: '추방된 방에는 다시 입장할 수 없습니다.' });
   if (!already) {
     db.prepare('INSERT INTO room_members (room_id, user_id) VALUES (?, ?)').run(room.id, req.user.id);
   }
@@ -167,7 +169,7 @@ app.get('/api/rooms/mine', auth, (req, res) => {
     SELECT r.id, r.title, r.invite_code, r.status, r.host_user_id
     FROM rooms r
     JOIN room_members m ON m.room_id = r.id
-    WHERE m.user_id = ?
+    WHERE m.user_id = ? AND m.active = 1
     ORDER BY r.created_at DESC
   `).all(req.user.id);
   res.json({ rooms: rows });
@@ -180,7 +182,7 @@ function getRoomOr404(req, res) {
 }
 
 function isMember(roomId, userId) {
-  return !!db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId);
+  return !!db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ? AND active = 1').get(roomId, userId);
 }
 
 app.get('/api/rooms/:id', auth, (req, res) => {
@@ -189,12 +191,13 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference
+    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference
     FROM room_members m JOIN users u ON u.id = m.user_id
-    WHERE m.room_id = ?
+    WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).map(m => ({
     id: m.id,
     nickname: m.nickname,
+    role: m.id === room.host_user_id ? 'host' : m.role,
     availability: parseStringArray(m.availability_json),
     dresscode: m.dresscode || null,
     preferences: normalizePreferenceIds(parseStringArray(m.preferences_json)),
@@ -392,7 +395,7 @@ app.post('/api/rooms/:id/draw', auth, (req, res) => {
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
 
-  const members = db.prepare('SELECT dresscode FROM room_members WHERE room_id = ?').all(room.id);
+  const members = db.prepare('SELECT dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id);
   const dresscodes = members.map(m => m.dresscode).filter(Boolean);
 
   const region = regions[Math.floor(Math.random() * regions.length)];
@@ -414,7 +417,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
   if (!region) return res.status(409).json({ error: '여행지를 먼저 추첨해주세요.' });
 
-  const memberRows = db.prepare('SELECT preferences_json, custom_preference FROM room_members WHERE room_id = ?').all(room.id);
+  const memberRows = db.prepare('SELECT preferences_json, custom_preference FROM room_members WHERE room_id = ? AND active = 1').all(room.id);
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
   const customPreferences = aggregateCustomPreferences(memberRows.map(member => member.custom_preference));
   const accommodation = room.accommodation_map_x && room.accommodation_map_y ? {
@@ -562,10 +565,16 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   });
 });
 
+registerRoomManagement(app, db, auth);
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`PICKGO 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`PICKGO 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
+  });
+}
+
+module.exports = app;

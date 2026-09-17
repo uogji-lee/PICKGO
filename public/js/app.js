@@ -220,6 +220,11 @@ async function renderRoomDetail() {
 
     ${room.status === 'decided' ? renderResultCard(room) : ''}
 
+    <details class="card collapsible-card" open>
+      <summary><h2>💰 회비 · 지출 · 정산</h2></summary>
+      <div id="roomFinance" class="collapsible-card-content">공동금고 불러오는 중…</div>
+    </details>
+
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
       <div class="collapsible-card-content">
@@ -322,8 +327,9 @@ async function renderRoomDetail() {
       <ul class="member-list">
         ${members.map(m => `
           <li>
-            <span>${escapeHtml(m.nickname)} ${m.id === room.hostUserId ? '<span class="badge host">방장</span>' : ''}</span>
+            <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span></span>
             <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개</span>
+            ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
       </ul>
@@ -445,6 +451,8 @@ async function renderRoomDetail() {
     };
   }
 
+  bindMemberManagement(room, members);
+  loadRoomFinance(room, members);
   if (room.status === 'decided') loadRecommendations(room.id);
 }
 

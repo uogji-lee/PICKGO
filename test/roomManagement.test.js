@@ -1,0 +1,120 @@
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+process.env.PICKGO_DB_PATH = ':memory:';
+process.env.PICKGO_JWT_SECRET = 'isolated-test-secret';
+const app = require('../server');
+const db = require('../db');
+let server;
+let base;
+let users;
+async function request(path, user, body, method = body === undefined ? 'GET' : 'POST') {
+  const response = await fetch(base + '/api' + path, {
+    method, headers: { 'Content-Type': 'application/json', ...(user ? { Cookie: user.cookie } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+}
+before(async () => {
+  server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}`;
+  users = [];
+  for (let index = 0; index < 4; index++) {
+    const result = await request('/signup', null, { nickname: `테스트${index}`, password: 'test-pass' });
+    assert.equal(result.status, 200);
+    users.push({ ...result.data.user, cookie: result.cookie });
+  }
+});
+after(async () => { await new Promise(resolve => server.close(resolve)); db.close(); });
+async function createRoom() {
+  const { data } = await request('/rooms', users[0], { title: '정산 테스트' });
+  for (const user of users.slice(1, 3)) assert.equal((await request('/rooms/join', user, { inviteCode: data.inviteCode })).status, 200);
+  return { ...data, path: `/rooms/${data.roomId}` };
+}
+
+test('인증, 방 격리, 총무 권한, 역할 교체와 방장 위임을 서버에서 검사한다', async () => {
+  const { path } = await createRoom();
+  assert.equal((await request(`${path}/finance`)).status, 401);
+  assert.equal((await request(`${path}/finance`, users[3])).status, 403);
+  assert.equal((await request(`${path}/finance/dues`, users[1], { amount: 10000 })).status, 403);
+  assert.equal((await request(`${path}/members/${users[1].id}/role`, users[1], { role: 'treasurer' })).status, 403);
+  assert.equal((await request(`${path}/members/${users[1].id}/role`, users[0], { role: 'treasurer' })).status, 200);
+  assert.equal((await request(`${path}/finance/dues`, users[1], { amount: 10000 })).status, 200);
+  assert.equal((await request(`${path}/members/${users[2].id}/kick`, users[1], {})).status, 403);
+  await request(`${path}/members/${users[2].id}/role`, users[0], { role: 'treasurer' });
+  assert.equal((await request(`${path}/finance/dues`, users[1], { amount: 20000 })).status, 403);
+  assert.equal((await request(`${path}/members/${users[0].id}/kick`, users[0], {})).status, 400);
+  assert.equal((await request(`${path}/members/${users[2].id}/role`, users[0], { role: 'host' })).status, 200);
+  assert.equal((await request(`${path}/title`, users[0], { title: '변경' })).status, 403);
+  assert.equal((await request(`${path}/title`, users[2], { title: '변경' })).status, 200);
+  const detail = (await request(path, users[2])).data;
+  assert.equal(detail.members.filter(person => person.role === 'host').length, 1);
+  assert.equal(detail.isHost, true);
+});
+
+test('실제 회비·공동금고·선결제·추가 납부·반환 전체 흐름을 정산한다', async () => {
+  const { path } = await createRoom();
+  const manager = users[0];
+  await request(`${path}/finance/dues`, manager, { amount: 10000 });
+  for (const user of users.slice(0, 2)) await request(`${path}/finance/payments`, manager, { userId: user.id, amount: 10000 });
+  const expense = { title: '저녁', amount: 9000, payerUserId: null, participantIds: users.slice(0, 3).map(user => user.id), date: '2026-09-17' };
+  assert.equal((await request(`${path}/finance/expenses`, manager, expense)).status, 200);
+  assert.equal((await request(`${path}/finance/expenses`, manager, { ...expense, title: '둘만 카페', amount: 7001, payerUserId: users[1].id, participantIds: users.slice(1, 3).map(user => user.id) })).status, 200);
+  let data = (await request(`${path}/finance`, users[1])).data;
+  assert.deepEqual(data.people.map(person => person.balance), [7000, 10500, -6500]);
+  assert.equal((await request(`${path}/finance/phase`, manager, { phase: 'settling' })).status, 200);
+  data = (await request(`${path}/finance`, users[1])).data;
+  assert.equal(data.people[2].unpaid, 6500);
+  assert.equal((await request(`${path}/finance/dues`, manager, { amount: 20000 })).status, 400);
+  assert.equal((await request(`${path}/finance/refunds`, manager, { userId: users[1].id, amount: 10501 })).status, 400);
+  assert.equal((await request(`${path}/finance/payments`, manager, { userId: users[2].id, amount: 6500 })).status, 200);
+  assert.equal((await request(`${path}/finance/refunds`, manager, { userId: users[0].id, amount: 7000 })).status, 200);
+  assert.equal((await request(`${path}/finance/refunds`, manager, { userId: users[1].id, amount: 10500 })).status, 200);
+  data = (await request(`${path}/finance`, manager)).data;
+  assert.ok(data.people.every(person => person.balance === 0));
+  assert.ok(data.people.every(person => person.unpaid === 0));
+  assert.equal(data.poolBalance, 0);
+  assert.equal((await request(`${path}/finance/refunds`, manager, { userId: users[1].id, amount: 10500 })).status, 400);
+  assert.equal((await request(`${path}/finance/payments/${data.payments[0].id}/void`, manager, {})).status, 400);
+  assert.equal((await request(`${path}/finance/nudges`, manager, { userId: users[2].id })).status, 400);
+});
+
+test('금액·분담 인원·날짜·공동금고 잔액을 검증하고 타 방 기록을 변경할 수 없다', async () => {
+  const { path } = await createRoom();
+  for (const amount of [-1, 0.5, '1000', 100000001, null]) {
+    assert.equal((await request(`${path}/finance/dues`, users[0], { amount })).status, 400);
+  }
+  const expense = { title: '테스트', amount: 10000, payerUserId: users[0].id, participantIds: [users[0].id], date: '2026-09-17' };
+  for (const patch of [{ participantIds: [] }, { participantIds: [users[3].id] }, { participantIds: [users[0].id, users[0].id] }, { date: '2026-02-30' }, { payerUserId: null }, { amount: -1 }, { payerUserId: users[3].id }]) {
+    assert.equal((await request(`${path}/finance/expenses`, users[0], { ...expense, ...patch })).status, 400);
+  }
+  assert.equal((await request(`${path}/finance/expenses`, users[0], expense)).status, 200);
+  const record = (await request(`${path}/finance`, users[0])).data.expenses[0];
+  const other = await createRoom();
+  assert.equal((await request(`${other.path}/finance/expenses/${record.id}/void`, users[0], {})).status, 404);
+  assert.equal((await request(`${path}/finance/expenses/${record.id}/void`, users[0], {})).status, 200);
+  assert.equal((await request(`${path}/finance`, users[0])).data.spent, 0);
+});
+
+test('회비 꼽주기는 미납자에게만 하루 한 번이며 추방 후 접근과 재입장을 차단한다', async () => {
+  const { path, inviteCode } = await createRoom();
+  const target = users[1];
+  await request(`${path}/finance/dues`, users[0], { amount: 10000 });
+  assert.equal((await request(`${path}/finance/nudges`, users[2], { userId: target.id })).status, 403);
+  assert.equal((await request(`${path}/finance/nudges`, users[0], { userId: target.id })).status, 200);
+  assert.equal((await request(`${path}/finance/nudges`, users[0], { userId: target.id })).status, 429);
+  await request(`${path}/finance/payments`, users[0], { userId: users[2].id, amount: 10000 });
+  assert.equal((await request(`${path}/finance/nudges`, users[0], { userId: users[2].id })).status, 400);
+  await request(`${path}/finance/expenses`, users[0], { title: '교통', amount: 3000, payerUserId: target.id, participantIds: [target.id, users[0].id], date: '2026-09-17' });
+  await request(`${path}/members/${target.id}/kick`, users[0], {});
+  for (const suffix of ['', '/finance', '/recommendations']) assert.equal((await request(path + suffix, target)).status, 403);
+  assert.equal((await request(`${path}/preferences`, target, { preferences: ['food'] })).status, 403);
+  assert.equal((await request('/rooms/join', target, { inviteCode })).status, 403);
+  const rooms = (await request('/rooms/mine', target)).data.rooms;
+  assert.ok(!rooms.some(room => `/rooms/${room.id}` === path));
+  const detail = (await request(path, users[0])).data;
+  assert.equal(detail.members.length, 2);
+  const finance = (await request(`${path}/finance`, users[0])).data;
+  assert.equal(finance.people.find(person => person.id === target.id).balance, 1500);
+  assert.equal(finance.people.find(person => person.id === target.id).active, false);
+});

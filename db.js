@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS room_members (
 
 // 기존 DB에도 새 컬럼을 안전하게 추가하는 간단한 마이그레이션
 const memberColumns = db.prepare('PRAGMA table_info(room_members)').all();
+if (!memberColumns.some(column => column.name === 'role')) {
+  db.exec("ALTER TABLE room_members ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
+}
+if (!memberColumns.some(column => column.name === 'active')) {
+  db.exec('ALTER TABLE room_members ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+}
 if (!memberColumns.some(column => column.name === 'preferences_json')) {
   db.exec("ALTER TABLE room_members ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '[]'");
 }
@@ -66,6 +72,8 @@ if (!roomColumns.some(column => column.name === 'trip_nights')) {
 }
 
 const roomMigrations = [
+  ['dues_amount', 'ALTER TABLE rooms ADD COLUMN dues_amount INTEGER NOT NULL DEFAULT 0'],
+  ['finance_phase', "ALTER TABLE rooms ADD COLUMN finance_phase TEXT NOT NULL DEFAULT 'collecting'"],
   ['traveler_count', "ALTER TABLE rooms ADD COLUMN traveler_count INTEGER NOT NULL DEFAULT 1"],
   ['transport_mode', "ALTER TABLE rooms ADD COLUMN transport_mode TEXT NOT NULL DEFAULT 'public'"],
   ['vehicle_count', "ALTER TABLE rooms ADD COLUMN vehicle_count INTEGER NOT NULL DEFAULT 0"],
@@ -78,5 +86,50 @@ const roomMigrations = [
 for (const [columnName, statement] of roomMigrations) {
   if (!roomColumns.some(column => column.name === columnName)) db.exec(statement);
 }
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS trip_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL REFERENCES rooms(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  amount INTEGER NOT NULL CHECK(amount > 0),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  voided INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS trip_expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL REFERENCES rooms(id),
+  title TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK(amount > 0),
+  payer_user_id INTEGER REFERENCES users(id),
+  participant_ids TEXT NOT NULL,
+  expense_date TEXT NOT NULL,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  voided INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS trip_refunds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL REFERENCES rooms(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  amount INTEGER NOT NULL CHECK(amount > 0),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  voided INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS dues_nudges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL REFERENCES rooms(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS payments_room ON trip_payments(room_id);
+CREATE INDEX IF NOT EXISTS expenses_room ON trip_expenses(room_id);
+CREATE INDEX IF NOT EXISTS refunds_room ON trip_refunds(room_id);
+CREATE INDEX IF NOT EXISTS nudges_room ON dues_nudges(room_id);
+`);
 
 module.exports = db;
