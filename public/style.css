@@ -65,6 +65,14 @@ body {
 .member-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; margin-top: 8px; }
 .member-actions select { width: auto; margin: 0; padding: 7px 10px; }
 .danger { color: #b33c38; }
+.kakao-login-link { display: block; padding: 13px 18px; margin: 12px 0; border-radius: 10px; background: #fee500; color: #191919; text-align: center; text-decoration: none; font-weight: 600; }
+.kakao-login-link[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.journey-history { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }
+.journey-history > summary { cursor: pointer; font-weight: 600; }
+.voided-record { opacity: .55; }
+.finance-section fieldset { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; }
+.finance-inline select { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: white; font: inherit; }
+#kakaoSocialPanel code { overflow-wrap: anywhere; }
 .refund { color: #23734b; }
 .finance-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .finance-heading h2 { margin: 0; font-size: 18px; }

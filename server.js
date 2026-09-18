@@ -5,9 +5,12 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { customAlphabet } = require('nanoid');
+const security = require('./services/security');
+const { registerKakaoAuth } = require('./services/kakaoAuth');
 
 const db = require('./db');
 const { registerRoomManagement } = require('./services/roomManagement');
+const { planSnapshot } = require('./services/clubLedger');
 const regions = require('./data/regions');
 const {
   PREFERENCES,
@@ -25,7 +28,7 @@ const { createNaverLocalClient } = require('./services/naverLocal');
 const { createGooglePlacesClient } = require('./services/googlePlaces');
 const { createTourApiClient } = require('./services/tourApi');
 
-const JWT_SECRET = process.env.PICKGO_JWT_SECRET || 'pickgo-dev-secret-change-me';
+const JWT_SECRET = security.secret;
 const PORT = process.env.PORT || 3000;
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈리는 글자 제외
 const kakaoLocal = createKakaoLocalClient();
@@ -34,6 +37,9 @@ const googlePlaces = createGooglePlacesClient();
 const tourApi = createTourApiClient();
 
 const app = express();
+app.disable('x-powered-by');
+if (process.env.PICKGO_TRUST_PROXY === '1') app.set('trust proxy', 1);
+app.use(security.securityMiddleware);
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -43,7 +49,7 @@ function auth(req, res, next) {
   const token = req.cookies.pickgo_token;
   if (!token) return res.status(401).json({ error: '로그인이 필요합니다.' });
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     const user = db.prepare('SELECT id, nickname FROM users WHERE id = ?').get(payload.uid);
     if (!user) return res.status(401).json({ error: '로그인이 필요합니다.' });
     req.user = user;
@@ -57,7 +63,7 @@ function optionalAuth(req, res, next) {
   const token = req.cookies.pickgo_token;
   if (token) {
     try {
-      const payload = jwt.verify(token, JWT_SECRET);
+      const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
       const user = db.prepare('SELECT id, nickname FROM users WHERE id = ?').get(payload.uid);
       if (user) req.user = user;
     } catch (e) { /* ignore */ }
@@ -87,17 +93,26 @@ function addDaysToDate(date, days) {
 }
 
 // ---------- 회원가입 / 로그인 ----------
+const loginAttempts = new Map();
+app.use(['/api/login', '/api/signup'], (req, res, next) => {
+  const now = Date.now();
+  for (const [key, value] of loginAttempts) if (value.until < now) loginAttempts.delete(key);
+  const attempts = loginAttempts.get(req.ip) || { count: 0, until: now + 900000 };
+  if (++attempts.count > 30) return res.status(429).json({ error: '로그인 시도가 많습니다. 15분 뒤 다시 시도해주세요.' });
+  loginAttempts.set(req.ip, attempts);
+  next();
+});
 app.post('/api/signup', (req, res) => {
   const { nickname, password } = req.body || {};
-  if (!nickname || !password) {
+  if (typeof nickname !== 'string' || typeof password !== 'string' || !nickname || !password) {
     return res.status(400).json({ error: '닉네임과 비밀번호를 모두 입력해주세요.' });
   }
   const trimmed = String(nickname).trim();
   if (trimmed.length < 2 || trimmed.length > 12) {
     return res.status(400).json({ error: '닉네임은 2~12자로 입력해주세요.' });
   }
-  if (String(password).length < 4) {
-    return res.status(400).json({ error: '비밀번호는 4자 이상으로 입력해주세요.' });
+  if (password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ error: '비밀번호는 8자 이상, UTF-8 기준 72바이트 이내로 입력해주세요.' });
   }
   const exists = db.prepare('SELECT id FROM users WHERE nickname = ?').get(trimmed);
   if (exists) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
@@ -106,7 +121,7 @@ app.post('/api/signup', (req, res) => {
   const info = db.prepare('INSERT INTO users (nickname, password_hash) VALUES (?, ?)').run(trimmed, hash);
   const user = { id: info.lastInsertRowid, nickname: trimmed };
   const token = issueToken(user);
-  res.cookie('pickgo_token', token, { httpOnly: true, maxAge: 30 * 24 * 3600 * 1000, sameSite: 'lax' });
+  res.cookie('pickgo_token', token, { ...security.cookieOptions, maxAge: 30 * 24 * 3600 * 1000 });
   res.json({ user });
 });
 
@@ -116,23 +131,25 @@ app.post('/api/login', (req, res) => {
     return res.status(400).json({ error: '닉네임과 비밀번호를 모두 입력해주세요.' });
   }
   const row = db.prepare('SELECT * FROM users WHERE nickname = ?').get(String(nickname).trim());
-  if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+  if (!row || !row.password_hash || !bcrypt.compareSync(String(password), row.password_hash)) {
     return res.status(401).json({ error: '닉네임 또는 비밀번호가 올바르지 않습니다.' });
   }
   const user = { id: row.id, nickname: row.nickname };
   const token = issueToken(user);
-  res.cookie('pickgo_token', token, { httpOnly: true, maxAge: 30 * 24 * 3600 * 1000, sameSite: 'lax' });
+  res.cookie('pickgo_token', token, { ...security.cookieOptions, maxAge: 30 * 24 * 3600 * 1000 });
   res.json({ user });
 });
 
 app.post('/api/logout', (req, res) => {
-  res.clearCookie('pickgo_token');
+  res.clearCookie('pickgo_token', security.cookieOptions);
   res.json({ ok: true });
 });
 
 app.get('/api/me', optionalAuth, (req, res) => {
-  res.json({ user: req.user || null });
+  res.json({ user: req.user ? { ...req.user, kakaoLinked: Boolean(db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)) } : null });
 });
+
+registerKakaoAuth(app, db, { auth, optionalAuth, issueToken });
 
 // ---------- 방 생성 / 입장 ----------
 app.post('/api/rooms', auth, (req, res) => {
@@ -158,6 +175,7 @@ app.post('/api/rooms/join', auth, (req, res) => {
   if (!room) return res.status(404).json({ error: '존재하지 않는 초대코드입니다.' });
   const already = db.prepare('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(room.id, req.user.id);
   if (already && !already.active) return res.status(403).json({ error: '추방된 방에는 다시 입장할 수 없습니다.' });
+  if (!already && room.membership_locked) return res.status(403).json({ error: '멤버가 확정된 방입니다. 방장에게 초대를 요청해주세요.' });
   if (!already) {
     db.prepare('INSERT INTO room_members (room_id, user_id) VALUES (?, ?)').run(room.id, req.user.id);
   }
@@ -185,6 +203,17 @@ function isMember(roomId, userId) {
   return !!db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ? AND active = 1').get(roomId, userId);
 }
 
+function tripRoster(room) {
+  const trip = room.active_trip_id && db.prepare('SELECT participant_ids FROM journeys WHERE id=? AND room_id=?').get(room.active_trip_id, room.id);
+  return trip ? JSON.parse(trip.participant_ids) : null;
+}
+app.post(['/api/rooms/:id/draw', '/api/rooms/:id/select-date', '/api/rooms/:id/trip-settings'], auth, (req, res, next) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!room.active_trip_id) return res.status(409).json({ error: '방에서 새 여행을 먼저 만들어주세요.' });
+  next();
+});
+
 app.get('/api/rooms/:id', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
@@ -197,6 +226,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   `).all(room.id).map(m => ({
     id: m.id,
     nickname: m.nickname,
+    isTreasurer: m.id === room.treasurer_user_id,
     role: m.id === room.host_user_id ? 'host' : m.role,
     availability: parseStringArray(m.availability_json),
     dresscode: m.dresscode || null,
@@ -207,7 +237,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
 
   // 날짜별 가능 인원 집계
   const tally = {};
-  for (const m of members) {
+  const roster = tripRoster(room);
+  for (const m of members.filter(member => !roster || roster.includes(member.id))) {
     for (const date of m.availability) {
       tally[date] = (tally[date] || 0) + 1;
     }
@@ -228,6 +259,10 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       title: room.title,
       inviteCode: room.invite_code,
       hostUserId: room.host_user_id,
+      treasurerUserId: room.treasurer_user_id,
+      activeTripId: room.active_trip_id,
+      membershipLocked: Boolean(room.membership_locked),
+      tripParticipantIds: roster || [],
       status: room.status,
       selectedDate: room.selected_date,
       selectedEndDate: room.selected_date ? addDaysToDate(room.selected_date, room.trip_nights ?? 1) : null,
@@ -309,7 +344,7 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 여행 조건을 변경할 수 있습니다.' });
 
-  const travelerCount = Number(req.body?.travelerCount);
+  const travelerCount = tripRoster(room)?.length || Number(req.body?.travelerCount);
   const transportMode = req.body?.transportMode === 'car' ? 'car' : 'public';
   const vehicleCount = transportMode === 'car' ? Number(req.body?.vehicleCount) : 0;
   const accommodationName = String(req.body?.accommodationName || '').trim().slice(0, 80);
@@ -351,11 +386,11 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
     }
   }
 
-  db.prepare(`
+  const updated = db.prepare(`
     UPDATE rooms
     SET traveler_count = ?, transport_mode = ?, vehicle_count = ?,
         accommodation_name = ?, accommodation_address = ?, accommodation_map_x = ?, accommodation_map_y = ?
-    WHERE id = ?
+    WHERE id = ? AND active_trip_id = ? AND host_user_id = ?
   `).run(
     travelerCount,
     transportMode,
@@ -364,8 +399,9 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
     accommodation?.address || null,
     accommodation?.mapX || null,
     accommodation?.mapY || null,
-    room.id
+    room.id, room.active_trip_id, req.user.id
   );
+  if (!updated.changes) return res.status(409).json({ error: '여행 또는 방장이 변경되었습니다. 새로고침 후 다시 저장해주세요.' });
 
   res.json({
     ok: true,
@@ -395,7 +431,9 @@ app.post('/api/rooms/:id/draw', auth, (req, res) => {
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
 
-  const members = db.prepare('SELECT dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id);
+  const roster = tripRoster(room);
+  const members = db.prepare('SELECT user_id, dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id)
+    .filter(member => !roster || roster.includes(member.user_id));
   const dresscodes = members.map(m => m.dresscode).filter(Boolean);
 
   const region = regions[Math.floor(Math.random() * regions.length)];
@@ -417,7 +455,10 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
   if (!region) return res.status(409).json({ error: '여행지를 먼저 추첨해주세요.' });
 
-  const memberRows = db.prepare('SELECT preferences_json, custom_preference FROM room_members WHERE room_id = ? AND active = 1').all(room.id);
+  if (!room.active_trip_id) return res.status(409).json({ error: '지난 여행 코스는 여행 기록에서 확인해주세요.' });
+  const roster = tripRoster(room);
+  const memberRows = db.prepare('SELECT user_id, preferences_json, custom_preference FROM room_members WHERE room_id = ? AND active = 1').all(room.id)
+    .filter(member => !roster || roster.includes(member.user_id));
   const votes = aggregatePreferences(memberRows.map(member => parseStringArray(member.preferences_json)));
   const customPreferences = aggregateCustomPreferences(memberRows.map(member => member.custom_preference));
   const accommodation = room.accommodation_map_x && room.accommodation_map_y ? {
@@ -529,6 +570,16 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   }
   const uniqueProviderLabels = [...new Set(providerLabels)];
 
+  const latestRoom = db.prepare('SELECT * FROM rooms WHERE id = ?').get(room.id);
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  if (!latestRoom || latestRoom.active_trip_id !== room.active_trip_id
+    || JSON.stringify(planSnapshot(latestRoom)) !== JSON.stringify(planSnapshot(room))
+    || JSON.stringify(tripRoster(latestRoom)) !== JSON.stringify(roster)) {
+    return res.status(409).json({ error: '코스를 만드는 동안 여행 조건이 변경되었습니다. 새로고침해주세요.' });
+  }
+  db.prepare("UPDATE journeys SET itinerary_json = ? WHERE id = ? AND status = 'planning'")
+    .run(JSON.stringify(itinerary), room.active_trip_id);
+
   res.json({
     provider: [tourApiConnected, kakaoLocalConnected, naverLocalConnected, googlePlacesConnected].filter(Boolean).length > 1
       ? 'multi'
@@ -567,6 +618,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
 registerRoomManagement(app, db, auth);
 
+app.use('/api', (req, res) => res.status(404).json({ error: 'API를 찾을 수 없습니다.' }));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

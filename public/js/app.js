@@ -22,6 +22,10 @@ async function api(path, opts = {}) {
 
 // ---------- 초기화 ----------
 async function init() {
+  const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
+  const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.' };
+  state.authNotice = oauthMessages[oauthError] || (location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
+  if (location.hash.startsWith('#kakao')) history.replaceState(null, '', location.pathname);
   try {
     const { user } = await api('/me');
     state.user = user;
@@ -78,11 +82,15 @@ function renderAuth() {
         <button id="tabSignup">회원가입</button>
       </div>
       <div id="authError"></div>
+      ${state.authNotice ? `<p class="error-msg">${escapeHtml(state.authNotice)}</p>` : ''}
+      <a id="kakaoLoginLink" class="kakao-login-link" aria-disabled="true">카카오로 로그인</a>
+      <p id="kakaoLoginInfo" class="desc"></p>
       <input type="text" id="nickname" placeholder="닉네임 (2~12자)" maxlength="12" />
-      <input type="password" id="password" placeholder="비밀번호 (4자 이상)" />
+      <input type="password" id="password" placeholder="비밀번호 (신규 가입은 8자 이상)" />
       <button class="block" id="submitBtn">로그인</button>
     </div>
   `;
+  configureKakaoLogin();
   let mode = 'login';
   const setMode = (m) => {
     mode = m;
@@ -120,6 +128,7 @@ async function renderRoomList() {
   } catch (e) { /* ignore */ }
 
   appEl().innerHTML = `
+    <details class="card collapsible-card"><summary><h2>카카오 연결 · 친구 · 받은 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     <div class="card">
       <h2>방 만들기</h2>
       <input type="text" id="newRoomTitle" placeholder="방제 (예: 여름 휴가)" maxlength="30" />
@@ -137,13 +146,14 @@ async function renderRoomList() {
         rooms.map(r => `
           <li class="room-list-item" data-id="${r.id}">
             <span>${escapeHtml(r.title)} ${r.host_user_id === state.user.id ? '<span class="badge host">방장</span>' : '<span class="badge">멤버</span>'}</span>
-            <span>${r.status === 'decided' ? '✅ 결정완료' : '📅 진행중'}</span>
+            <span>모임 기록 보기 →</span>
           </li>
         `).join('') + `</ul>`
         : `<p class="desc">아직 참여한 방이 없어요. 방을 만들거나 초대코드로 입장해보세요.</p>`}
     </div>
   `;
 
+  loadKakaoPanel(el('#kakaoSocialPanel'));
   el('#createRoomBtn').onclick = async () => {
     const title = el('#newRoomTitle').value.trim();
     try {
@@ -218,13 +228,15 @@ async function renderRoomDetail() {
       </div>
     </div>
 
-    ${room.status === 'decided' ? renderResultCard(room) : ''}
+    <details class="card collapsible-card"><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
+    ${room.activeTripId && room.status === 'decided' ? renderResultCard(room) : ''}
 
     <details class="card collapsible-card" open>
       <summary><h2>💰 회비 · 지출 · 정산</h2></summary>
       <div id="roomFinance" class="collapsible-card-content">공동금고 불러오는 중…</div>
     </details>
 
+    <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
       <div class="collapsible-card-content">
@@ -233,7 +245,7 @@ async function renderRoomDetail() {
         <div class="trip-settings-grid">
           <label>
             <span>실제 여행 인원</span>
-            <input type="number" id="travelerCountInput" min="1" max="30" value="${room.travelerCount || members.length || 1}" />
+            <input type="number" id="travelerCountInput" min="1" max="30" value="${room.travelerCount || members.length || 1}" readonly />
           </label>
           <label>
             <span>주요 교통수단</span>
@@ -321,13 +333,14 @@ async function renderRoomDetail() {
       </div>
     </details>
 
+    </div>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👥 참여 멤버 (${members.length}명)</h2></summary>
       <div class="collapsible-card-content">
       <ul class="member-list">
         ${members.map(m => `
           <li>
-            <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span></span>
+            <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
             <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
@@ -336,7 +349,7 @@ async function renderRoomDetail() {
       </div>
     </details>
 
-    ${isHost ? `
+    ${isHost && room.activeTripId ? `
       <details class="card collapsible-card" ${planningSectionsOpen}>
         <summary><h2>🎲 여행지 & 드레스코드 추첨</h2></summary>
         <div class="collapsible-card-content">
@@ -453,7 +466,8 @@ async function renderRoomDetail() {
 
   bindMemberManagement(room, members);
   loadRoomFinance(room, members);
-  if (room.status === 'decided') loadRecommendations(room.id);
+  loadKakaoPanel(el('#kakaoSocialPanel'), room);
+  if (room.activeTripId && room.status === 'decided') loadRecommendations(room.id);
 }
 
 function tripLengthLabel(nights) {

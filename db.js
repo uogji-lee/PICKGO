@@ -132,4 +132,5 @@ CREATE INDEX IF NOT EXISTS refunds_room ON trip_refunds(room_id);
 CREATE INDEX IF NOT EXISTS nudges_room ON dues_nudges(room_id);
 `);
 
+require('./services/migrations')(db);
 module.exports = db;
