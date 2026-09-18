@@ -164,9 +164,20 @@ test('월별 부분 납부를 누적하고 중복 청구 없이 잔액과 불참
   assert.equal(data.poolBalance, data.people.reduce((sum, person) => sum + person.balance, 0));
 });
 
-test('총무 지정 전에는 방장도 회비를 수정할 수 없고 외부 사이트 요청은 차단한다', async () => {
+test('총무 미지정 시 방장이 대행하고 지정·해제·추방 시 권한을 즉시 재계산한다', async () => {
   const { path, inviteCode } = await createRoom();
-  assert.equal((await request(`${path}/finance/payments`, users[0], { userId: users[0].id, amount: 100 })).status, 403);
+  const payment = { userId: users[0].id, amount: 100 };
+  assert.equal((await request(`${path}/finance/payments`, users[0], payment)).status, 200);
+  assert.equal((await request(`${path}/finance/payments`, users[1], payment)).status, 403);
+  await request(`${path}/members/${users[1].id}/role`, users[0], { role: 'treasurer' });
+  assert.equal((await request(`${path}/finance/payments`, users[0], payment)).status, 403);
+  assert.equal((await request(`${path}/finance/payments`, users[1], payment)).status, 200);
+  await request(`${path}/members/${users[1].id}/role`, users[0], { role: 'member' });
+  assert.equal((await request(`${path}/finance`, users[0])).data.canManage, true);
+  await request(`${path}/members/${users[1].id}/role`, users[0], { role: 'treasurer' });
+  await request(`${path}/members/${users[1].id}/kick`, users[0], {});
+  assert.equal((await request(`${path}/finance`, users[0])).data.canManage, true);
+  assert.equal((await request(`${path}/finance/payments`, users[1], payment)).status, 403);
   await request(`${path}/membership`, users[0], { locked: true });
   assert.equal((await request('/rooms/join', users[3], { inviteCode })).status, 403);
   const response = await fetch(base + '/api' + path + '/title', {

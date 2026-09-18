@@ -25,7 +25,6 @@ const {
 } = require('./services/recommendations');
 const { createKakaoLocalClient } = require('./services/kakaoLocal');
 const { createNaverLocalClient } = require('./services/naverLocal');
-const { createGooglePlacesClient } = require('./services/googlePlaces');
 const { createTourApiClient } = require('./services/tourApi');
 
 const JWT_SECRET = security.secret;
@@ -33,7 +32,6 @@ const PORT = process.env.PORT || 3000;
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈리는 글자 제외
 const kakaoLocal = createKakaoLocalClient();
 const naverLocal = createNaverLocalClient();
-const googlePlaces = createGooglePlacesClient();
 const tourApi = createTourApiClient();
 
 const app = express();
@@ -470,11 +468,9 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   let tourItems = [];
   let kakaoItems = [];
   let naverItems = [];
-  let googleItems = [];
   let tourApiConnected = false;
   let kakaoLocalConnected = false;
   let naverLocalConnected = false;
-  let googlePlacesConnected = false;
   const notices = [];
   const providerLabels = [];
 
@@ -533,21 +529,8 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     }
   }
 
-  if (googlePlaces.isConfigured()) {
-    try {
-      googleItems = await googlePlaces.getPersonalizedPlaces(region.name, votes, customPreferences);
-      if (googleItems.length) {
-        googlePlacesConnected = true;
-        providerLabels.push('Google Maps');
-      } else notices.push('Google Places에서 취향에 맞는 장소를 찾지 못했습니다.');
-    } catch (error) {
-      console.warn(`[Google Places] ${error.message}`);
-      notices.push('Google Places API에 일시적으로 연결할 수 없습니다.');
-    }
-  }
-
   const seenPlaces = new Set();
-  const items = [...kakaoItems, ...naverItems, ...tourItems, ...googleItems].filter(item => {
+  const items = [...kakaoItems, ...naverItems, ...tourItems].filter(item => {
     const key = String(item.name || '').toLocaleLowerCase('ko')
       .replace(/[^0-9a-z가-힣]/g, '');
     if (seenPlaces.has(key)) return false;
@@ -581,11 +564,10 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     .run(JSON.stringify(itinerary), room.active_trip_id);
 
   res.json({
-    provider: [tourApiConnected, kakaoLocalConnected, naverLocalConnected, googlePlacesConnected].filter(Boolean).length > 1
+    provider: [tourApiConnected, kakaoLocalConnected, naverLocalConnected].filter(Boolean).length > 1
       ? 'multi'
       : kakaoLocalConnected ? 'kakao'
         : naverLocalConnected ? 'naver'
-          : googlePlacesConnected ? 'google'
             : tourApiConnected ? 'tourapi' : 'fallback',
     providerLabel: uniqueProviderLabels.join(' + '),
     notices,
@@ -593,7 +575,6 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       tourApi: { configured: tourApi.isConfigured(), connected: tourApiConnected },
       kakaoLocal: { configured: kakaoLocal.isConfigured(), connected: kakaoLocalConnected },
       naverLocal: { configured: naverLocal.isConfigured(), connected: naverLocalConnected },
-      googlePlaces: { configured: googlePlaces.isConfigured(), connected: googlePlacesConnected },
     },
     kakaoMap: {
       configured: Boolean(process.env.KAKAO_JAVASCRIPT_KEY),

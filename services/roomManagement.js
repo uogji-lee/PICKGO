@@ -11,9 +11,9 @@ function registerRoomManagement(app, db, auth) {
     const member = members(room.id).find(person => person.id === req.user.id && person.active);
     if (!member) fail('방 멤버가 아닙니다.', 403);
     const isHost = room.host_user_id === req.user.id;
-    const canManage = room.treasurer_user_id === req.user.id;
+    const canManage = (room.treasurer_user_id || room.host_user_id) === req.user.id;
     if (permission === 'host' && !isHost) fail('방장만 멤버를 관리할 수 있습니다.', 403);
-    if (permission === 'treasurer' && !canManage) fail('지정된 총무만 회비·지출을 입력하거나 수정할 수 있습니다.', 403);
+    if (permission === 'treasurer' && !canManage) fail('총무만 회비·지출을 수정할 수 있습니다. 총무 미지정 시 방장이 대신 관리합니다.', 403);
     if (permission === 'planner' && !isHost && !canManage) fail('방장 또는 총무만 여행을 만들 수 있습니다.', 403);
     return { room, member, isHost, canManage };
   }

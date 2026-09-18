@@ -205,7 +205,7 @@ async function renderRoomDetail() {
 
   const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
   const me = members.find(m => m.id === state.user.id);
-  const planningSectionsOpen = room.status !== 'decided' ? 'open' : '';
+  const planningSectionsOpen = 'open';
   localSelectedDates = new Set(me ? me.availability : []);
 
   if (!calendarCursor) {
@@ -228,14 +228,24 @@ async function renderRoomDetail() {
       </div>
     </div>
 
-    <details class="card collapsible-card"><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
+    <nav class="room-tabs" role="tablist" aria-label="방 메뉴">
+      ${[['course', '여행·코스'], ['conditions', '여행 조건'], ['finance', '회비·정산'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+    </nav>
+    <p id="roomActionStatus" role="status" aria-live="polite"></p>
+    <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
     ${room.activeTripId && room.status === 'decided' ? renderResultCard(room) : ''}
+    <div class="card"><p class="desc">${room.activeTripId ? '교통·숙소, 취향, 날짜와 재추첨은 여행 조건 탭에서 수정하세요.' : '같은 방에서 여행을 만들고 기록을 이어가세요.'}</p>${room.activeTripId ? '<button class="secondary" data-go-tab="conditions">여행 조건 수정</button>' : ''}<div id="tripManagement">여행 정보 불러오는 중…</div></div>
+    </section>
 
+    <section id="panel-finance" role="tabpanel" aria-labelledby="tab-finance" tabindex="0" hidden>
     <details class="card collapsible-card" open>
       <summary><h2>💰 회비 · 지출 · 정산</h2></summary>
       <div id="roomFinance" class="collapsible-card-content">공동금고 불러오는 중…</div>
     </details>
+    </section>
 
+    <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
+    ${!room.activeTripId ? '<div class="card"><p>먼저 여행·코스 탭에서 여행과 참석자를 정해주세요.</p><button class="secondary" data-go-tab="course">여행 만들러 가기</button></div>' : ''}
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
@@ -334,6 +344,10 @@ async function renderRoomDetail() {
     </details>
 
     </div>
+    <div id="drawControls"></div>
+    </section>
+    <section id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" hidden>
+    <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👥 참여 멤버 (${members.length}명)</h2></summary>
       <div class="collapsible-card-content">
@@ -348,6 +362,7 @@ async function renderRoomDetail() {
       </ul>
       </div>
     </details>
+    </section>
 
     ${isHost && room.activeTripId ? `
       <details class="card collapsible-card" ${planningSectionsOpen}>
@@ -360,6 +375,8 @@ async function renderRoomDetail() {
     ` : ''}
   `;
 
+  if (el('#drawBtn')) el('#drawControls').append(el('#drawBtn').closest('details'));
+  bindRoomTabs(room);
   el('#backBtn').onclick = () => { state.view = 'rooms'; calendarCursor = null; render(); };
 
   el('#copyInviteBtn').onclick = () => {
@@ -459,6 +476,7 @@ async function renderRoomDetail() {
       if (!confirm('여행지와 드레스코드를 랜덤으로 추첨할까요?')) return;
       try {
         await api(`/rooms/${room.id}/draw`, { method: 'POST' });
+        roomTabState.delete(room.id);
         render();
       } catch (e) { alert(e.message); }
     };
@@ -597,7 +615,6 @@ async function loadRecommendations(roomId) {
         <span class="${data.integrationStatus?.tourApi?.connected ? 'connected' : ''}">TourAPI ${data.integrationStatus?.tourApi?.connected ? '연결됨' : data.integrationStatus?.tourApi?.configured ? '연결 오류' : '키 필요'}</span>
         <span class="${data.integrationStatus?.kakaoLocal?.connected ? 'connected' : ''}">카카오 로컬 ${data.integrationStatus?.kakaoLocal?.connected ? '연결됨' : data.integrationStatus?.kakaoLocal?.configured ? '연결 오류' : '키 필요'}</span>
         <span class="${data.integrationStatus?.naverLocal?.connected ? 'connected' : ''}">네이버 지역검색 ${data.integrationStatus?.naverLocal?.connected ? '연결됨' : data.integrationStatus?.naverLocal?.configured ? '연결 오류' : '키 필요'}</span>
-        <span class="${data.integrationStatus?.googlePlaces?.connected ? 'connected' : ''}">Google Places ${data.integrationStatus?.googlePlaces?.connected ? '연결됨' : data.integrationStatus?.googlePlaces?.configured ? '연결 오류' : '키 필요'}</span>
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
       <div class="route-context">

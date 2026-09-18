@@ -65,6 +65,14 @@ body {
 .member-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; margin-top: 8px; }
 .member-actions select { width: auto; margin: 0; padding: 7px 10px; }
 .danger { color: #b33c38; }
+.room-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 20px; padding: 6px; background: #eee9e2; border-radius: 14px; }
+.room-tabs button { margin: 0; padding: 13px 4px; border: 0; border-radius: 10px; background: transparent; color: #635b53; box-shadow: none; font-weight: 600; }
+.room-tabs button[aria-selected="true"] { background: white; color: #b64e30; box-shadow: 0 2px 6px #33221112; }
+.room-tabs button:focus-visible { outline: 3px solid #c96b49; outline-offset: 2px; }
+[role="tabpanel"][hidden] { display: none !important; }
+#roomActionStatus:empty { display: none; }
+#tripManagement { margin-top: 18px; }
+@media (max-width: 480px) { .room-tabs { gap: 2px; padding: 4px; } .room-tabs button { font-size: 13px; } }
 .kakao-login-link { display: block; padding: 13px 18px; margin: 12px 0; border-radius: 10px; background: #fee500; color: #191919; text-align: center; text-decoration: none; font-weight: 600; }
 .kakao-login-link[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 .journey-history { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }

@@ -40,19 +40,19 @@ async function loadRoomFinance(room, members) {
     const me = people.find(person => person.id === state.user.id);
     const options = people.map(person => `<option value="${person.id}">${name(person.id)} · 누적 ${won(person.paid)} · 잔액 ${won(person.balance)}${person.active ? '' : ' (퇴장)'}</option>`).join('');
     const checklist = (ids = members.map(member => member.id)) => members.map(member => `<label><input type="checkbox" name="participantIds" value="${member.id}" ${ids.includes(member.id) ? 'checked' : ''}>${escapeHtml(member.nickname)}</label>`).join('');
-    const status = message => { el('[data-finance-status]', container).textContent = message; };
+    const status = message => { el('[data-finance-status]', container).textContent = message; const notice = el('#roomActionStatus'); if (notice) notice.textContent = message; };
     const recordRow = (record, kind) => `<li class="${record.voided ? 'voided-record' : ''}"><div><strong>${kind === 'expenses' ? escapeHtml(record.title) : name(record.user_id)} · ${won(record.amount)} ${record.voided ? '(취소됨)' : ''}</strong>
       <small>${kind === 'expenses' ? `${escapeHtml(record.expense_date)} · ${record.payer_user_id === null ? '공동금고' : name(record.payer_user_id) + ' 선결제'} · ${JSON.parse(record.participant_ids).map(name).join(', ')}` : `${escapeHtml(record.billing_month || '')} ${escapeHtml(record.note || (kind === 'refunds' ? '반환' : '기존 납부'))}`}</small>
       <small>기록: ${name(record.created_by)} · ${escapeHtml(record.created_at)} UTC</small></div>
       ${canManage && !record.voided && (!record.trip_id || trips.find(trip => trip.id === record.trip_id)?.status !== 'completed') ? `<button class="ghost small" data-void="${kind}/${record.id}">기록 취소</button>` : ''}</li>`;
     container.innerHTML = `
-      <div class="finance-heading"><div><h2>💰 계속 모으는 우리 여행 적금</h2><p class="desc">총무 ${data.treasurerUserId ? name(data.treasurerUserId) : '미지정'} · ${canManage ? '장부 편집 가능' : '모든 내역 열람 가능 · 편집은 총무만'}</p></div><button id="refreshFinanceBtn" class="ghost small">새로고침</button></div>
+      <div class="finance-heading"><div><h2>💰 계속 모으는 우리 여행 적금</h2><p class="desc">${data.treasurerUserId ? '총무 ' + name(data.treasurerUserId) : '총무 미지정 · 방장 ' + name(room.hostUserId) + ' 대행'} · ${canManage ? '장부 편집 가능' : '모든 내역 열람 가능 · 편집은 총무(미지정 시 방장)만'}</p></div><button id="refreshFinanceBtn" class="ghost small">새로고침</button></div>
       <p data-finance-status role="status" aria-live="polite" class="finance-status"></p>
       ${isHost ? `<form id="treasurerForm" class="finance-inline"><label>총무 지정 (방장 겸임 가능)<select name="userId">${members.map(member => `<option value="${member.id}" ${member.id === data.treasurerUserId ? 'selected' : ''}>${escapeHtml(member.nickname)}</option>`).join('')}</select></label><button class="secondary">지정</button></form>
         <p><button id="lockMembersBtn" class="ghost small">${data.membershipLocked ? '멤버 확정 해제' : '현재 멤버로 확정'}</button> <small>${data.membershipLocked ? '초대코드 신규 입장 잠금 · 방장 초대는 가능' : '친구를 모은 후 멤버를 확정하세요.'}</small></p>` : ''}
       <div class="finance-stats"><div><span>공동금고 현금</span><strong>${won(data.poolBalance)}</strong><small>다음 여행으로 계속 이월</small></div><div><span>누적 여행비</span><strong>${won(data.spent)}</strong><small>${trips.filter(trip => trip.status === 'completed').length}번의 여행 완료</small></div><div><span>내 적립금 잔액</span><strong>${won(me?.balance)}</strong><small>음수이면 추가 납부 필요</small></div></div>
       <p class="desc">개인별 적립금에서 참석한 여행 비용만 차감합니다. 불참자의 잔액과 남은 회비는 다음 여행을 위해 보존됩니다.</p>
-      <details class="nested-collapsible" open><summary>🗓️ 이번 여행과 다음 여행</summary><div class="finance-section">
+      <details class="nested-collapsible" data-journey-controls open><summary>🗓️ 이번 여행과 다음 여행</summary><div class="finance-section">
         ${current ? `<h3>${escapeHtml(current.title)}</h3><p>${escapeHtml(current.plan.selected_date || '날짜 미정')} · ${tripLengthLabel(current.plan.trip_nights)} · ${current.participantIds.map(name).join(', ')}</p>
           ${(isHost || canManage) && !current.spent ? `<form id="participantsForm"><fieldset><legend>이번 여행 참석자 변경</legend><div class="expense-participants">${checklist(current.participantIds)}</div></fieldset><button class="secondary">참석자 저장</button></form>` : ''}
           ${canManage ? '<button id="finishTripBtn" class="block">여행 종료 · 자동 정산 · 잔액 이월</button><div id="finishTripConfirm" hidden role="group" aria-label="여행 종료 확인"><p>누락된 지출이 없는지 확인해주세요. 종료하면 여행 지출은 수정할 수 없고 잔액은 다음 여행으로 이월됩니다.</p><button id="confirmFinishTripBtn">확인 · 정산 확정</button> <button id="cancelFinishTripBtn" class="ghost">취소</button></div>' : '<p class="desc">총무가 여행 종료를 누르면 정산과 기록이 확정됩니다.</p>'}` : `<p>회비는 계속 모으고, 떠날 때 새 여행을 만드세요.</p>
@@ -123,6 +123,9 @@ async function loadRoomFinance(room, members) {
       const update = () => { const person = people.find(person => person.id === Number(payer.value)); el('#payerExisting', container).textContent = `기존 납부 ${won(person.paid)} + 이번 ${won(Number(paymentAmount.value))} = 누적 ${won(person.paid + Number(paymentAmount.value))}`; };
       payer.onchange = update; paymentAmount.oninput = update; update();
     }
+    const journeyControls = container.querySelector('[data-journey-controls]');
+    const tripArea = el('#tripManagement');
+    if (tripArea && journeyControls) tripArea.replaceChildren(journeyControls);
   } catch (error) {
     if (container.isConnected) { container.innerHTML = `<p class="error-msg">${escapeHtml(error.message)}</p><button id="financeRetry">다시 불러오기</button>`; el('#financeRetry', container).onclick = () => loadRoomFinance(room, members); }
   }
