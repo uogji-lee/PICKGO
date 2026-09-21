@@ -186,3 +186,52 @@ test('총무 미지정 시 방장이 대행하고 지정·해제·추방 시 권
   assert.equal(response.status, 403);
   assert.equal((await request('/missing-endpoint', users[0])).status, 404);
 });
+
+test('준비물은 여행별 저장·공용 공유·개인 격리하며 완료 후 변경을 차단한다', async () => {
+  const { path, tripId } = await createRoom(true);
+  const packing = `${path}/trips/${tripId}/packing`;
+  assert.equal((await request(packing, users[3])).status, 403);
+  assert.equal((await request(`${packing}/defaults`, users[0], {})).status, 200);
+  await request(`${packing}/defaults`, users[0], {});
+  const first = (await request(packing, users[0])).data;
+  assert.equal(first.items.length, 20);
+  assert.equal((await request(packing, users[1])).data.items.length, 10);
+  await request(`${packing}/defaults`, users[1], {});
+  assert.equal((await request(packing, users[1])).data.items.length, 20);
+  const shared = first.items.find(item => item.category === 'shared');
+  const personal = first.items.find(item => item.category === 'personal');
+  assert.equal((await request(`${packing}/${personal.id}`, users[1], { checked: true })).status, 404);
+  assert.equal((await request(`${packing}/${shared.id}`, users[1], { checked: true })).status, 200);
+  assert.equal((await request(`${packing}/${shared.id}`, users[1], { assigneeId: users[2].id })).status, 200);
+  assert.equal((await request(`${packing}/${shared.id}`, users[1], { assigneeId: users[3].id })).status, 400);
+  assert.equal((await request(`${packing}/${shared.id}`, users[1], { deleted: true })).status, 403);
+  const updated = (await request(packing, users[0])).data.items.find(item => item.id === shared.id);
+  assert.equal(updated.checked, 1);
+  assert.equal(updated.assignee_id, users[2].id);
+  assert.equal((await request(packing, users[1], {title:'카메라',category:'shared'})).status, 200);
+  assert.equal((await request(packing, users[1], {title:'',category:'shared'})).status, 400);
+  await request(`${path}/trips/${tripId}/finish`, users[0], {});
+  assert.equal((await request(`${packing}/${shared.id}`, users[0], { checked: false })).status, 403);
+  assert.equal((await request(packing, users[1])).data.completed, true);
+  const next = await request(`${path}/trips`, users[0], {title:'다음 여행',date:'2026-10-01',participantIds:[users[0].id]});
+  const nextPath = `${path}/trips/${next.data.tripId}/packing`;
+  assert.equal((await request(nextPath, users[0])).data.items.length, 0);
+  assert.equal((await request(`${nextPath}/defaults`, users[1], {})).status, 403);
+});
+
+test('기존 4자 비밀번호 로그인·세션·로그아웃을 유지하고 성공 로그인은 차단 횟수에 포함하지 않는다', async () => {
+  const bcrypt = require('bcryptjs');
+  db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run('이전계정', bcrypt.hashSync('1234', 4));
+  assert.equal((await request('/login', null, {nickname:'이전계정',password:'wrong'})).status, 401);
+  let result;
+  for (let i = 0; i < 32; i++) {
+    result = await request('/login', null, {nickname:'이전계정',password:'1234'});
+    assert.equal(result.status, 200);
+  }
+  const user = {cookie:result.cookie};
+  assert.equal((await request('/me',user)).data.user.nickname, '이전계정');
+  const logout = await request('/logout',user,{});
+  assert.equal(logout.status, 200);
+  assert.match(logout.cookie, /^pickgo_token=$/);
+  assert.equal((await request('/me',{cookie:logout.cookie})).data.user,null);
+});

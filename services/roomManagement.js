@@ -67,5 +67,6 @@ function registerRoomManagement(app, db, auth) {
     return { ok: true };
   });
   registerClubLedger(db, { route, access, activeMember, members, fail });
+  require('./packing').registerPacking(db, { route, access, fail });
 }
 module.exports = { registerRoomManagement };

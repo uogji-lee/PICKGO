@@ -49,6 +49,14 @@ module.exports = function migrate(db) {
       CREATE INDEX IF NOT EXISTS requests_room ON payment_requests(room_id);
     `);
     add('journeys', 'itinerary_json', 'TEXT');
+    db.exec(`CREATE TABLE IF NOT EXISTS packing_items (
+      id INTEGER PRIMARY KEY, trip_id INTEGER NOT NULL REFERENCES journeys(id), title TEXT NOT NULL,
+      category TEXT NOT NULL, owner_id INTEGER REFERENCES users(id), assignee_id INTEGER REFERENCES users(id),
+      checked INTEGER NOT NULL DEFAULT 0, checked_by INTEGER REFERENCES users(id), created_by INTEGER NOT NULL REFERENCES users(id),
+      deleted INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS packing_trip ON packing_items(trip_id);
+    CREATE TABLE IF NOT EXISTS packing_seeds(trip_id INTEGER NOT NULL REFERENCES journeys(id),user_id INTEGER NOT NULL,PRIMARY KEY(trip_id,user_id));`);
     if (!db.prepare('SELECT 1 FROM schema_versions WHERE name = ?').get('persistent-clubs-v1')) {
       for (const room of db.prepare('SELECT * FROM rooms').all()) {
         const people = db.prepare('SELECT user_id FROM room_members WHERE room_id = ? AND active = 1 ORDER BY user_id').all(room.id);

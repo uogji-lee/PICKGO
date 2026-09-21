@@ -10,13 +10,14 @@ let state = {
 
 // ---------- API 헬퍼 ----------
 async function api(path, opts = {}) {
-  const res = await fetch('/api' + path, {
+  let res;
+  try { res = await fetch('/api' + path, {
     method: opts.method || 'GET',
     headers: { 'Content-Type': 'application/json' },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || '오류가 발생했습니다.');
+  }); } catch { throw new Error('서버에 연결할 수 없습니다. 페이지 주소와 서버 실행 상태를 확인해주세요.'); }
+  const data = await res.json().catch(() => { throw new Error('서버 응답을 읽지 못했습니다. 새로고침 후 다시 시도해주세요.'); });
+  if (!res.ok) { const error = new Error(data.error || '오류가 발생했습니다.'); error.status = res.status; throw error; }
   return data;
 }
 
@@ -32,8 +33,11 @@ async function init() {
     state.view = user ? 'rooms' : 'auth';
   } catch (e) {
     state.view = 'auth';
+    state.authNotice = e.message;
   }
   render();
+  document.getElementById('helpGuide').onclick = () => showQuickGuide(true);
+  showQuickGuide();
 }
 
 function renderUserBox() {
@@ -85,9 +89,9 @@ function renderAuth() {
       ${state.authNotice ? `<p class="error-msg">${escapeHtml(state.authNotice)}</p>` : ''}
       <a id="kakaoLoginLink" class="kakao-login-link" aria-disabled="true">카카오로 로그인</a>
       <p id="kakaoLoginInfo" class="desc"></p>
-      <input type="text" id="nickname" placeholder="닉네임 (2~12자)" maxlength="12" />
-      <input type="password" id="password" placeholder="비밀번호 (신규 가입은 8자 이상)" />
-      <button class="block" id="submitBtn">로그인</button>
+      <form id="loginForm"><input type="text" id="nickname" name="username" autocomplete="username" aria-label="닉네임" placeholder="닉네임 (2~12자)" maxlength="12" required />
+      <input type="password" id="password" name="password" autocomplete="current-password" aria-label="비밀번호" placeholder="비밀번호 (신규 가입은 8자 이상)" required />
+      <button type="submit" class="block" id="submitBtn">로그인</button></form>
     </div>
   `;
   configureKakaoLogin();
@@ -97,10 +101,15 @@ function renderAuth() {
     el('#tabLogin').className = m === 'login' ? 'secondary' : '';
     el('#tabSignup').className = m === 'signup' ? 'secondary' : '';
     el('#submitBtn').textContent = m === 'login' ? '로그인' : '회원가입';
+    el('#password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
   };
   el('#tabLogin').onclick = () => setMode('login');
   el('#tabSignup').onclick = () => setMode('signup');
-  el('#submitBtn').onclick = async () => {
+  el('#loginForm').onsubmit = async event => {
+    event.preventDefault();
+    const submit = el('#submitBtn');
+    if (submit.disabled) return;
+    submit.disabled = true;
     const nickname = el('#nickname').value.trim();
     const password = el('#password').value;
     const errBox = el('#authError');
@@ -114,7 +123,7 @@ function renderAuth() {
       render();
     } catch (e) {
       errBox.innerHTML = `<div class="error-msg">${escapeHtml(e.message)}</div>`;
-    }
+    } finally { submit.disabled = false; }
   };
 }
 
@@ -125,7 +134,12 @@ async function renderRoomList() {
   try {
     const data = await api('/rooms/mine');
     rooms = data.rooms;
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    if (e.status === 401) { state.user = null; state.view = 'auth'; state.authNotice = '로그인이 만료되었습니다. 다시 로그인해주세요.'; render(); return; }
+    appEl().innerHTML = `<div class="card"><p class="error-msg">${escapeHtml(e.message)}</p><button id="retryRooms">다시 불러오기</button></div>`;
+    el('#retryRooms').onclick = renderRoomList;
+    return;
+  }
 
   appEl().innerHTML = `
     <details class="card collapsible-card"><summary><h2>카카오 연결 · 친구 · 받은 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
@@ -197,6 +211,7 @@ async function renderRoomDetail() {
   try {
     data = await api(`/rooms/${state.roomId}`);
   } catch (e) {
+    if (e.status === 401) { state.user = null; state.view = 'auth'; state.authNotice = '로그인이 만료되었습니다. 다시 로그인해주세요.'; render(); return; }
     appEl().innerHTML = `<div class="card"><div class="error-msg">${escapeHtml(e.message)}</div>
       <button class="secondary" id="backBtn">방 목록으로</button></div>`;
     el('#backBtn').onclick = () => { state.view = 'rooms'; render(); };
@@ -229,7 +244,7 @@ async function renderRoomDetail() {
     </div>
 
     <nav class="room-tabs" role="tablist" aria-label="방 메뉴">
-      ${[['course', '여행·코스'], ['conditions', '여행 조건'], ['finance', '회비·정산'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+      ${[['course', '여행·코스'], ['conditions', '여행 조건'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
     </nav>
     <p id="roomActionStatus" role="status" aria-live="polite"></p>
     <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
@@ -238,12 +253,14 @@ async function renderRoomDetail() {
     </section>
 
     <section id="panel-finance" role="tabpanel" aria-labelledby="tab-finance" tabindex="0" hidden>
+    <div id="expenseOverview" class="card">여행 경비 불러오는 중…</div>
     <details class="card collapsible-card" open>
       <summary><h2>💰 회비 · 지출 · 정산</h2></summary>
       <div id="roomFinance" class="collapsible-card-content">공동금고 불러오는 중…</div>
     </details>
     </section>
 
+    <section id="panel-packing" role="tabpanel" aria-labelledby="tab-packing" tabindex="0" hidden><div class="card"><h2>여행 준비물</h2><div id="packingContent">준비물 불러오는 중…</div></div></section>
     <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
     ${!room.activeTripId ? '<div class="card"><p>먼저 여행·코스 탭에서 여행과 참석자를 정해주세요.</p><button class="secondary" data-go-tab="course">여행 만들러 가기</button></div>' : ''}
     <div ${room.activeTripId ? '' : 'hidden'}>
@@ -484,6 +501,7 @@ async function renderRoomDetail() {
 
   bindMemberManagement(room, members);
   loadRoomFinance(room, members);
+  loadPacking(room);
   loadKakaoPanel(el('#kakaoSocialPanel'), room);
   if (room.activeTripId && room.status === 'decided') loadRecommendations(room.id);
 }

@@ -96,8 +96,11 @@ app.use(['/api/login', '/api/signup'], (req, res, next) => {
   const now = Date.now();
   for (const [key, value] of loginAttempts) if (value.until < now) loginAttempts.delete(key);
   const attempts = loginAttempts.get(req.ip) || { count: 0, until: now + 900000 };
-  if (++attempts.count > 30) return res.status(429).json({ error: '로그인 시도가 많습니다. 15분 뒤 다시 시도해주세요.' });
-  loginAttempts.set(req.ip, attempts);
+  if (attempts.count >= 30) return res.status(429).json({ error: '로그인 시도가 많습니다. 15분 뒤 다시 시도해주세요.' });
+  res.once('finish', () => {
+    if (res.statusCode >= 400) { attempts.count++; loginAttempts.set(req.ip, attempts); }
+    else loginAttempts.delete(req.ip);
+  });
   next();
 });
 app.post('/api/signup', (req, res) => {

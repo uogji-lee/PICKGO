@@ -33,6 +33,7 @@ async function loadRoomFinance(room, members) {
   try {
     const data = await api(`/rooms/${room.id}/finance`);
     if (!container.isConnected || state.roomId !== room.id) return;
+    bindExpenseOverview(room, data);
     const { canManage, people, trips, dues, requests, history, nudges } = data;
     const isHost = room.hostUserId === state.user.id;
     const name = id => escapeHtml(people.find(person => person.id === id)?.nickname || '멤버');
