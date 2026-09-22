@@ -2,7 +2,7 @@ const roomTabState = new Map();
 function defaultRoomTab(room, previous) {
   const phase = `${room.activeTripId || 'none'}:${room.status}`;
   if (previous?.phase === phase) return previous.tab;
-  return room.activeTripId && room.status !== 'decided' ? 'conditions' : 'course';
+  return room.activeTripId && room.status === 'decided' ? 'course' : 'conditions';
 }
 function bindRoomTabs(room) {
   const buttons = [...document.querySelectorAll('[data-room-tab]')];

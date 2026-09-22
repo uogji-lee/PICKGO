@@ -33,6 +33,7 @@ const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6); // 헷갈�
 const kakaoLocal = createKakaoLocalClient();
 const naverLocal = createNaverLocalClient();
 const tourApi = createTourApiClient();
+const { registerAccommodation, verifyAccommodation } = require('./services/accommodation');
 
 const app = express();
 app.disable('x-powered-by');
@@ -151,6 +152,25 @@ app.get('/api/me', optionalAuth, (req, res) => {
 });
 
 registerKakaoAuth(app, db, { auth, optionalAuth, issueToken });
+
+app.post('/api/me/profile', auth, (req, res) => {
+  const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';
+  if (nickname.length < 2 || nickname.length > 12) return res.status(400).json({ error: '닉네임은 2~12자로 입력해주세요.' });
+  if (db.prepare('SELECT id FROM users WHERE nickname = ? AND id != ?').get(nickname, req.user.id)) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
+  db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  res.json({ user: { ...req.user, nickname } });
+});
+app.post('/api/friends/by-nickname', auth, (req, res) => {
+  const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';
+  const friend = db.prepare('SELECT id FROM users WHERE nickname = ?').get(nickname);
+  if (!friend || friend.id === req.user.id) return res.status(400).json({ error: '다른 회원의 정확한 닉네임을 입력해주세요.' });
+  db.prepare('INSERT OR IGNORE INTO friend_links(owner_id,friend_id) VALUES (?,?)').run(req.user.id, friend.id);
+  res.json({ ok: true });
+});
+app.delete('/api/friends/:friendId', auth, (req, res) => {
+  db.prepare('DELETE FROM friend_links WHERE owner_id = ? AND friend_id = ?').run(req.user.id, Number(req.params.friendId));
+  res.json({ ok: true });
+});
 
 // ---------- 방 생성 / 입장 ----------
 app.post('/api/rooms', auth, (req, res) => {
@@ -340,6 +360,7 @@ app.post('/api/rooms/:id/preferences', auth, (req, res) => {
   res.json({ ok: true, preferences: clean, customPreference: cleanCustomPreference });
 });
 
+registerAccommodation(app, {auth,getRoomOr404,naverLocal,secret:JWT_SECRET});
 app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
@@ -359,34 +380,14 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
 
   let accommodation = null;
   let accommodationNotice = null;
-  if (accommodationName) {
-    if (kakaoLocal.isConfigured()) {
-      try {
-        const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
-        const documents = await kakaoLocal.searchKeyword({
-          query: [region?.name, accommodationName].filter(Boolean).join(' '),
-          size: 5,
-        });
-        const found = documents.find(document => document.category_group_code === 'AD5') || documents[0];
-        if (found) {
-          accommodation = {
-            name: String(found.place_name || accommodationName),
-            address: String(found.road_address_name || found.address_name || ''),
-            mapX: found.x ? String(found.x) : null,
-            mapY: found.y ? String(found.y) : null,
-          };
-        } else {
-          accommodationNotice = '숙소 위치를 찾지 못했습니다. 숙소명과 지역을 함께 입력해 주세요.';
-        }
-      } catch (error) {
-        console.warn(`[Kakao Accommodation] ${error.message}`);
-        accommodationNotice = '숙소 위치 조회가 지연되어 이름만 저장했습니다.';
-      }
-    } else {
-      accommodationNotice = '카카오 로컬 키가 없어 숙소 이름만 저장했습니다.';
-    }
+  if (req.body.accommodationProof) {
+    try { accommodation = verifyAccommodation(req.body.accommodationProof, room, req.user.id, JWT_SECRET); }
+    catch { return res.status(400).json({error:'숙소 검색 결과가 만료되었거나 여행이 변경되었습니다. 다시 검색해주세요.'}); }
+  } else if (accommodationName && accommodationName === room.accommodation_name) {
+    accommodation = {name:room.accommodation_name,address:room.accommodation_address,mapX:room.accommodation_map_x,mapY:room.accommodation_map_y};
+  } else if (accommodationName) {
+    return res.status(400).json({error:'네이버에서 숙소를 검색한 뒤 주소가 맞는 결과를 선택해주세요.'});
   }
-
   const updated = db.prepare(`
     UPDATE rooms
     SET traveler_count = ?, transport_mode = ?, vehicle_count = ?,

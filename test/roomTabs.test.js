@@ -21,13 +21,13 @@ test('방 렌더링은 조건·회비·멤버를 별도 패널에 배치하고 �
     assert.match(section('finance'), /id="roomFinance"/);
     assert.match(section('conditions'), /id="preferenceGrid"/);
     assert.match(section('members'), /id="kakaoSocialPanel"/);
-    assert.match(section('course'), /id="tripManagement"/);
+    assert.match(section('conditions'), /id="tripManagement"/);
     if (status === 'decided') assert.match(section('course'), /id="recommendationCard"/);
     assert.doesNotMatch(section('course'), /id="roomFinance"|id="preferenceGrid"/);
   }
 });
 test('추첨 전 조건·추첨 후 코스를 기본 표시하며 같은 여행에서는 선택 탭을 유지한다', () => {
-  assert.equal(defaultRoomTab({ activeTripId: null, status: 'planning' }), 'course');
+  assert.equal(defaultRoomTab({ activeTripId: null, status: 'planning' }), 'conditions');
   assert.equal(defaultRoomTab({ activeTripId: 1, status: 'planning' }), 'conditions');
   assert.equal(defaultRoomTab({ activeTripId: 1, status: 'decided' }, { phase: '1:planning', tab: 'conditions' }), 'course');
   assert.equal(defaultRoomTab({ activeTripId: 1, status: 'decided' }, { phase: '1:decided', tab: 'finance' }), 'finance');

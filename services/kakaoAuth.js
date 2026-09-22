@@ -91,7 +91,7 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
         return id;
       })();
       res.cookie('pickgo_token', issueToken({ id: userId }), { ...security.cookieOptions, maxAge: 30 * 86400000 });
-      res.redirect('/#kakao_connected');
+      res.redirect(pending.mode === 'friends' ? '/#kakao_friends_connected' : '/#kakao_connected');
     } catch (err) { res.redirect('/#kakao_error=' + (err.status === 409 ? 'already_linked' : 'configuration')); }
   });
   app.get('/api/kakao/friends', auth, asyncRoute(async (req, res) => {

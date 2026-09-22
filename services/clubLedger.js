@@ -117,6 +117,14 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
     db.prepare('UPDATE rooms SET traveler_count = ? WHERE id = ?').run(req.body.participantIds.length, room.id);
     return { ok: true };
   });
+  route('post', 'trips/:tripId/title', req => {
+    const { room } = access(req, 'planner');
+    const trip = tripById(room.id, Number(req.params.tripId));
+    const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+    if (!title || title.length > 60) fail('여행 이름을 1~60자로 입력해주세요.');
+    db.prepare('UPDATE journeys SET title = ? WHERE id = ?').run(title, trip.id);
+    return { ok: true };
+  });
   route('post', 'trips/:tripId/finish', req => {
     const { room } = access(req, 'treasurer');
     const trip = tripById(room.id, Number(req.params.tripId));
@@ -137,7 +145,6 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
   route('post', 'finance/expenses', req => {
     const { room } = access(req, 'treasurer');
     const trip = tripById(room.id, req.body.tripId);
-    if (trip.status !== 'planning') fail('종료된 여행의 장부는 보존됩니다.');
     const { title, payerUserId, participantIds, date } = req.body;
     if (typeof title !== 'string' || !title.trim() || title.length > 80) fail('지출 내용을 1~80자로 입력해주세요.');
     amount(req.body.amount);
@@ -149,6 +156,8 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
     if (payerUserId === null && summary(room).poolBalance < req.body.amount) fail('공동금고 잔액이 부족합니다. 개인 선결제로 입력한 뒤 추가 납부를 요청해주세요.');
     db.prepare('INSERT INTO trip_expenses(room_id,title,amount,payer_user_id,participant_ids,expense_date,created_by,trip_id) VALUES (?,?,?,?,?,?,?,?)')
       .run(room.id, title.trim(), req.body.amount, payerUserId, JSON.stringify(participantIds), date, req.user.id, trip.id);
+    // Keep the original closing snapshot; append late expenses to the live ledger.
+    if (trip.status === 'completed') requestDeficits(room, trip.id, `${trip.title} 종료 후 추가 지출 정산`);
     return { ok: true };
   });
   route('post', 'finance/request-extra', req => {

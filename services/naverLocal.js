@@ -54,11 +54,12 @@ function createNaverLocalClient(options = {}) {
     return value;
   }
 
-  async function searchLocal(query) {
+  async function searchLocal(query, { sort = 'comment' } = {}) {
     if (!clientId || !clientSecret) throw new Error('NAVER_CLIENT_ID와 NAVER_CLIENT_SECRET이 설정되지 않았습니다.');
     if (typeof fetchImpl !== 'function') throw new Error('현재 Node.js 환경에서 fetch를 사용할 수 없습니다.');
 
-    const cacheKey = String(query);
+    const order = sort === 'random' ? 'random' : 'comment';
+    const cacheKey = `${order}:${query}`;
     const cached = readCache(cacheKey);
     if (cached) return cached;
 
@@ -66,7 +67,7 @@ function createNaverLocalClient(options = {}) {
     url.searchParams.set('query', query);
     url.searchParams.set('display', '5');
     url.searchParams.set('start', '1');
-    url.searchParams.set('sort', 'comment');
+    url.searchParams.set('sort', order);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);

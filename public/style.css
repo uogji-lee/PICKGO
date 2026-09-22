@@ -722,6 +722,23 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 }
 .link-btn:hover { background: none; }
 
+/* Finance: summary first, focused actions, secondary ledgers collapsed. */
+#roomFinance { padding: 28px; }
+.finance-actions { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0; }
+.finance-actions button { flex:1 1 160px; padding:14px; }
+.finance-admin { margin:16px 0; padding:16px; background:#faf9f7; border-radius:14px; }
+#roomFinance > .nested-collapsible { margin:20px 0; border:1px solid #ebe7e2; border-radius:16px; overflow:hidden; background:white; }
+#roomFinance > .nested-collapsible > summary { padding:22px; font-size:17px; }
+#roomFinance .finance-section { padding:8px 24px 24px; }
+#roomFinance .finance-form { gap:18px; margin:20px 0 28px; padding:20px; border-radius:14px; background:#faf9f7; }
+#roomFinance .finance-stats { gap:16px; margin:24px 0; }
+#roomFinance .finance-stats > div { padding:22px; }
+.finance-table th,.finance-table td { padding:16px 12px; }
+.accommodation-result { display:grid; gap:8px; padding:16px; border:1px solid #ddd; border-radius:12px; margin-top:12px; }
+#profileForm { display:grid; gap:16px; max-width:520px; }
+#accommodationStatus { display:block; margin:12px 0; font-size:14px; }
+@media(max-width:560px) { #roomFinance {padding:12px;} #roomFinance .finance-section {padding:8px 12px 18px;} #roomFinance .finance-form {padding:14px;} .finance-actions {gap:8px;} }
+
 @media (max-width: 560px) {
   .topbar { padding: 14px 16px; }
   .user-box span { display: none; }

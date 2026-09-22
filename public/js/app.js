@@ -25,12 +25,14 @@ async function api(path, opts = {}) {
 async function init() {
   const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
   const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.' };
-  state.authNotice = oauthMessages[oauthError] || (location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
+  const fromKakao = location.hash.startsWith('#kakao');
+  state.autoLoadFriends = location.hash === '#kakao_friends_connected';
+  state.authNotice = oauthMessages[oauthError] || (state.autoLoadFriends ? '친구 목록 동의를 완료했습니다. 목록을 불러옵니다.' : location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
   if (location.hash.startsWith('#kakao')) history.replaceState(null, '', location.pathname);
   try {
     const { user } = await api('/me');
     state.user = user;
-    state.view = user ? 'rooms' : 'auth';
+    state.view = user ? (fromKakao ? 'account' : 'rooms') : 'auth';
   } catch (e) {
     state.view = 'auth';
     state.authNotice = e.message;
@@ -45,8 +47,10 @@ function renderUserBox() {
   if (!state.user) { box.innerHTML = ''; return; }
   box.innerHTML = `
     <span>👤 ${escapeHtml(state.user.nickname)}님</span>
+    <button class="ghost small" id="accountBtn">계정 · 친구</button>
     <button class="ghost small" id="logoutBtn">로그아웃</button>
   `;
+  el('#accountBtn', box).onclick = () => { state.view = 'account'; render(); };
   el('#logoutBtn', box).onclick = async () => {
     await api('/logout', { method: 'POST' });
     state.user = null;
@@ -70,6 +74,8 @@ function render() {
     renderAuth();
   } else if (state.view === 'rooms') {
     renderRoomList();
+  } else if (state.view === 'account') {
+    renderAccount();
   } else if (state.view === 'room') {
     renderRoomDetail();
   }
@@ -244,12 +250,12 @@ async function renderRoomDetail() {
     </div>
 
     <nav class="room-tabs" role="tablist" aria-label="방 메뉴">
-      ${[['course', '여행·코스'], ['conditions', '여행 조건'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+      ${[['conditions', '여행 준비'], ['course', '여행 코스'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
     </nav>
     <p id="roomActionStatus" role="status" aria-live="polite"></p>
     <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
     ${room.activeTripId && room.status === 'decided' ? renderResultCard(room) : ''}
-    <div class="card"><p class="desc">${room.activeTripId ? '교통·숙소, 취향, 날짜와 재추첨은 여행 조건 탭에서 수정하세요.' : '같은 방에서 여행을 만들고 기록을 이어가세요.'}</p>${room.activeTripId ? '<button class="secondary" data-go-tab="conditions">여행 조건 수정</button>' : ''}<div id="tripManagement">여행 정보 불러오는 중…</div></div>
+    <div class="card"><p class="desc">여행 준비에서 이름·날짜·참석자 → 교통·숙소·취향을 정하면 여기에서 코스를 확인할 수 있어요.</p><button class="secondary" data-go-tab="conditions">여행 준비 · 조건 수정</button></div>
     </section>
 
     <section id="panel-finance" role="tabpanel" aria-labelledby="tab-finance" tabindex="0" hidden>
@@ -262,7 +268,7 @@ async function renderRoomDetail() {
 
     <section id="panel-packing" role="tabpanel" aria-labelledby="tab-packing" tabindex="0" hidden><div class="card"><h2>여행 준비물</h2><div id="packingContent">준비물 불러오는 중…</div></div></section>
     <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
-    ${!room.activeTripId ? '<div class="card"><p>먼저 여행·코스 탭에서 여행과 참석자를 정해주세요.</p><button class="secondary" data-go-tab="course">여행 만들러 가기</button></div>' : ''}
+    <div class="card"><p class="desc">1. 이름·날짜·참석자 → 2. 교통·숙소·취향 → 3. 추첨·코스 생성</p><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
@@ -288,6 +294,9 @@ async function renderRoomDetail() {
           <label class="trip-settings-wide">
             <span>숙소명 또는 주소</span>
             <input type="text" id="accommodationInput" maxlength="80" placeholder="예: 포항 라한호텔 또는 도로명 주소" value="${escapeHtml(room.accommodation?.name || '')}" />
+            <button type="button" class="secondary" id="searchAccommodation">네이버 숙소 검색</button>
+            <span id="accommodationStatus" role="status"></span>
+            <div id="accommodationResults"></div>
           </label>
         </div>
         <button class="block secondary" id="saveTripSettingsBtn">교통·숙소 조건 저장</button>
@@ -436,6 +445,23 @@ async function renderRoomDetail() {
   };
 
   if (isHost) {
+    let accommodationProof = null;
+    let accommodationSearchVersion = 0;
+    el('#accommodationInput').oninput = () => { accommodationProof = null; accommodationSearchVersion++; el('#accommodationResults').innerHTML = ''; el('#accommodationStatus').textContent = '주소를 확인하려면 다시 검색해주세요.'; };
+    el('#searchAccommodation').onclick = async event => {
+      const button = event.target, version = ++accommodationSearchVersion; button.disabled = true;
+      const output = el('#accommodationResults'), notice = el('#accommodationStatus'); notice.textContent = '네이버에서 검색 중…';
+      try {
+        const result = await api(`/rooms/${room.id}/accommodation-search?q=${encodeURIComponent(el('#accommodationInput').value.trim())}`);
+        if (!output.isConnected || version !== accommodationSearchVersion) return;
+        notice.textContent = result.notice; output.replaceChildren();
+        result.places.forEach(place => { const row = document.createElement('div'); row.className = 'accommodation-result';
+          row.innerHTML = `<strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(place.address)}</small><a target="_blank" rel="noopener noreferrer" href="https://map.naver.com/p/search/${encodeURIComponent(place.address + ' ' + place.name)}">네이버 지도 확인 ↗</a><button type="button" class="secondary">이 숙소 선택</button>`;
+          row.querySelector('button').onclick = () => { accommodationProof = place.proof; el('#accommodationInput').value = place.name; notice.textContent = `선택: ${place.address} · 조건 저장을 눌러 확정하세요.`; output.replaceChildren(); };
+          output.append(row);
+        });
+      } catch(error) { notice.textContent = error.message; } finally { button.disabled = false; }
+    };
     const transportModeSelect = el('#transportModeSelect');
     const vehicleCountField = el('#vehicleCountField');
     transportModeSelect.onchange = () => {
@@ -449,7 +475,7 @@ async function renderRoomDetail() {
       try {
         const result = await api(`/rooms/${room.id}/trip-settings`, {
           method: 'POST',
-          body: { travelerCount, transportMode, vehicleCount, accommodationName },
+          body: { travelerCount, transportMode, vehicleCount, accommodationName, accommodationProof },
         });
         if (result.notice) alert(result.notice);
         render();

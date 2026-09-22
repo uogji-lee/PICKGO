@@ -41,6 +41,17 @@ async function begin(user, mode = 'link') {
 }
 const finish = (pending, user) => call('/auth/kakao/callback?code=test-code&state=' + pending.state, user, null, pending.cookie);
 
+test('친구 동의 성공은 친구관리 복귀 신호를 전달하고 비활성화 시 명확히 거부한다', async () => {
+  const pending = await begin(1,'friends');
+  assert.equal(pending.url.searchParams.get('scope'),'friends');
+  assert.equal((await finish(pending,1)).headers.get('location'),'/#kakao_friends_connected');
+  config.friendsEnabled = false;
+  assert.equal((await call('/auth/kakao/start?mode=friends',1)).headers.get('location'),'/#kakao_error=friends_permission');
+  config.friendsEnabled = true;
+  db.prepare('DELETE FROM kakao_accounts WHERE user_id=1').run();
+  externalCalls = 0;
+});
+
 test('OAuth state·연결 계정·토큰 암호화 및 재사용을 검증한다', async () => {
   const pending = await begin(1);
   assert.equal(pending.url.origin, 'https://kauth.kakao.com');

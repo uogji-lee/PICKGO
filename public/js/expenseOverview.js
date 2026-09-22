@@ -11,13 +11,13 @@ function renderExpenseOverview(room, data, userId) {
     <div class="expense-summary"><article><p>여행 총사용액 · 지출 ${expenses.length}건</p><strong>${won(total)}</strong><details><summary>통화별 내역</summary><p>KRW ${won(total)}</p><small>현재 원화 지출을 지원합니다.</small></details></article><article><p>내가 낸 금액</p><strong>${won(paid)}</strong><p class="desc">직접 선결제한 금액으로, 회비 납부액·정산 후 부담액과 달라요.</p></article></div>
     <div class="finance-heading"><h3>지출 내역</h3><button id="expandExpenseDates" class="ghost small">날짜별 전체 보기</button></div>
     ${dates.map(date => `<details class="expense-date" open><summary>${escapeHtml(date)} · ${won(expenses.filter(item => item.expense_date === date).reduce((sum,item) => sum + item.amount,0))}</summary><ul class="finance-records">${expenses.filter(item => item.expense_date === date).map(item => `<li><div><strong>${escapeHtml(item.title)}</strong><small>${item.payer_user_id === null ? '공동금고' : name(item.payer_user_id) + ' 선결제'} · ${JSON.parse(item.participant_ids).map(name).join(', ')}</small></div><strong>${won(item.amount)}</strong></li>`).join('')}</ul></details>`).join('') || '<p class="empty-state">아직 지출 기록이 없어요.<br>지출 추가 버튼으로 기록해보세요.</p>'}
-    ${data.canManage && trip?.id === data.activeTripId ? '<button id="addExpenseShortcut" class="block">+ 지출 추가</button>' : '<p class="desc">진행 중인 여행의 지출은 총무(미지정 시 방장)가 입력합니다.</p>'}</div>`;
+    ${data.canManage && trip ? '<button id="addExpenseShortcut" class="block">+ 지출 추가 · 완료 후 추가 정산 가능</button>' : '<p class="desc">총무(미지정 시 방장)가 지출을 입력합니다.</p>'}</div>`;
 }
 function bindExpenseOverview(room, data) {
   const root = document.getElementById('expenseOverview');
   if (!root) return;
   root.innerHTML = renderExpenseOverview(room, data, state.user.id);
-  root.querySelector('#expenseTripSelect').onchange = event => { expenseTripSelections.set(room.id,Number(event.target.value)); bindExpenseOverview(room,data); };
+  root.querySelector('#expenseTripSelect').onchange = event => { expenseTripSelections.set(room.id,Number(event.target.value)); render(); };
   root.querySelector('#expandExpenseDates').onclick = () => root.querySelectorAll('.expense-date').forEach(item => { item.open = true; });
   const add = root.querySelector('#addExpenseShortcut');
   if (add) add.onclick = () => { const form = document.getElementById('expenseForm'); if (form) { let parent = form.parentElement; while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; } form.scrollIntoView({behavior:'smooth',block:'center'}); form.querySelector('input').focus({preventScroll:true}); } };

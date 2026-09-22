@@ -152,7 +152,7 @@ test('월별 부분 납부를 누적하고 중복 청구 없이 잔액과 불참
   assert.equal(data.refunds.length, 0);
   assert.deepEqual(data.people.map(person => person.balance), [3999, 4000, 10000]);
   assert.equal((await request(`${path}/finance/expenses/${data.expenses[0].id}/void`, manager, {})).status, 400);
-  assert.equal((await request(`${path}/finance/expenses`, manager, expense)).status, 400);
+  assert.equal((await request(`${path}/finance/expenses`, users[1], expense)).status, 403);
   assert.equal((await request(`${path}/draw`, manager, {})).status, 409);
   const next = await request(`${path}/trips`, manager, { title: '두 번째 여행', date: '2026-10-01', nights: 0, participantIds: [users[2].id] });
   assert.equal(next.status, 200);
@@ -162,6 +162,37 @@ test('월별 부분 납부를 누적하고 중복 청구 없이 잔액과 불참
   assert.equal(data.trips.length, 2);
   assert.deepEqual(data.trips.find(trip => trip.id === tripId).settlement, ended.data.settlement);
   assert.equal(data.poolBalance, data.people.reduce((sum, person) => sum + person.balance, 0));
+});
+
+test('완료 후 추가 지출은 이전 정산을 보존하고 잔액·부족액을 다시 계산한다', async () => {
+  const {path,tripId} = await createRoom(true), ids = users.slice(0,2).map(user=>user.id);
+  const expense = {tripId,title:'뒤늦은 숙소비',amount:10001,payerUserId:users[0].id,participantIds:ids,date:'2026-09-20'};
+  const original = (await request(`${path}/trips/${tripId}/finish`,users[0],{})).data.settlement;
+  const next = await request(`${path}/trips`,users[0],{title:'다음 여행',date:'2026-10-01',participantIds:[users[2].id]});
+  assert.equal((await request(`${path}/finance/expenses`,users[1],expense)).status,403);
+  assert.equal((await request(`${path}/finance/expenses`,users[0],expense)).status,200);
+  const data = (await request(`${path}/finance`,users[1])).data;
+  assert.equal(data.activeTripId,next.data.tripId);
+  assert.equal(data.trips.find(t=>t.id===tripId).spent,10001);
+  assert.deepEqual(data.trips.find(t=>t.id===tripId).settlement,original);
+  assert.equal(data.people.find(p=>p.id===users[1].id).additionalDue,5000);
+  assert.equal(data.people.find(p=>p.id===users[2].id).balance,0);
+  assert.equal(data.requests.find(r=>r.user_id===users[1].id).remaining,5000);
+  assert.equal((await request(`${path}/trips/${tripId}/title`,users[1],{title:'안됨'})).status,403);
+  assert.equal((await request(`${path}/trips/${tripId}/title`,users[0],{title:'수정 여행'})).status,200);
+});
+
+test('닉네임 변경은 중복을 막고 친구 추가·삭제는 내 목록에만 적용된다', async () => {
+  assert.equal((await request('/me/profile',null,{nickname:'안됨'})).status,401);
+  assert.equal((await request('/me/profile',users[3],{nickname:users[0].nickname})).status,409);
+  assert.equal((await request('/me/profile',users[3],{nickname:'새닉네임'})).status,200);
+  assert.equal((await request('/me',users[3])).data.user.nickname,'새닉네임');
+  assert.equal((await request('/friends/by-nickname',users[0],{nickname:'새닉네임'})).status,200);
+  assert.equal((await request('/friends',users[0])).data.friends.find(f=>f.id===users[3].id).nickname,'새닉네임');
+  assert.equal((await request(`/friends/${users[3].id}`,users[1],{},'DELETE')).status,200);
+  assert.ok((await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id));
+  assert.equal((await request(`/friends/${users[3].id}`,users[0],{},'DELETE')).status,200);
+  assert.ok(!(await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id));
 });
 
 test('총무 미지정 시 방장이 대행하고 지정·해제·추방 시 권한을 즉시 재계산한다', async () => {

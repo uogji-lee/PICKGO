@@ -39,6 +39,23 @@ test('네이버 지역 검색이 인증 헤더와 리뷰순 정렬을 사용한�
   assert.equal(places[0].source, 'naver');
 });
 
+test('숙소 정확도순 검색은 추천 리뷰순 검색과 캐시를 분리한다', async () => {
+  const orders = [];
+  const client = createNaverLocalClient({
+    clientId: 'test-id', clientSecret: 'test-secret',
+    fetchImpl: async url => {
+      const sort = new URL(url).searchParams.get('sort');
+      orders.push(sort);
+      return {ok: true, json: async () => ({items: [{title: sort}]})};
+    },
+  });
+  assert.equal((await client.searchLocal('숙소'))[0].title, 'comment');
+  assert.equal((await client.searchLocal('숙소', {sort: 'random'}))[0].title, 'random');
+  await client.searchLocal('숙소', {sort: 'random'});
+  await client.searchLocal('숙소');
+  assert.deepEqual(orders, ['comment', 'random']);
+});
+
 test('네이버 제목 HTML과 확대 좌표를 정규화한다', () => {
   assert.equal(stripHtml('<b>카페&amp;바</b>'), '카페&바');
   assert.equal(normalizeCoordinate('1270123456', 180), '127.0123456');
