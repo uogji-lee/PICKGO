@@ -1,4 +1,4 @@
-const BASE_URL = 'https://openapi.naver.com/v1/search/local.json';
+const BASE_URL = 'https://naverapihub.apigw.ntruss.com/search/v1/local';
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const SEARCH_DEFINITIONS = Object.freeze({
@@ -74,8 +74,8 @@ function createNaverLocalClient(options = {}) {
     try {
       response = await fetchImpl(url, {
         headers: {
-          'X-Naver-Client-Id': clientId,
-          'X-Naver-Client-Secret': clientSecret,
+          'X-NCP-APIGW-API-KEY-ID': clientId,
+          'X-NCP-APIGW-API-KEY': clientSecret,
           Accept: 'application/json',
         },
         signal: controller.signal,

@@ -29,8 +29,11 @@ test('네이버 지역 검색이 인증 헤더와 리뷰순 정렬을 사용한�
 
   const places = await client.getPersonalizedPlaces('경기 수원시', { activity: 2 });
   assert.equal(requests.length, 3);
-  assert.equal(requests[0].options.headers['X-Naver-Client-Id'], 'naver-client-id');
-  assert.equal(requests[0].options.headers['X-Naver-Client-Secret'], 'naver-client-secret');
+  assert.equal(new URL(requests[0].url).origin, 'https://naverapihub.apigw.ntruss.com');
+  assert.equal(new URL(requests[0].url).pathname, '/search/v1/local');
+  assert.equal(requests[0].options.headers['X-NCP-APIGW-API-KEY-ID'], 'naver-client-id');
+  assert.equal(requests[0].options.headers['X-NCP-APIGW-API-KEY'], 'naver-client-secret');
+  assert.equal(requests[0].options.headers['X-Naver-Client-Secret'], undefined);
   assert.match(requests[0].url, /sort=comment/);
   assert.equal(places[0].name, '행궁동 카페');
   assert.equal(places[0].source, 'naver');

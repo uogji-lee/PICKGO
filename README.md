@@ -50,8 +50,8 @@ npm start
 | `TOUR_API_SERVICE_KEY` | 한국관광공사 TourAPI 일반 인증키(Decoding 키 권장) | 미설정 시 기본 장소 데이터 사용 |
 | `KAKAO_REST_API_KEY` | 카카오디벨로퍼스 앱의 REST API 키 | 미설정 시 맛집·카페·체험 검색 생략 |
 | `KAKAO_JAVASCRIPT_KEY` | 카카오 지도 JavaScript 키 | 미설정 시 코스 지도 버튼 숨김 |
-| `NAVER_CLIENT_ID` | 네이버 검색 API Client ID | 미설정 시 네이버 지역 검색 생략 |
-| `NAVER_CLIENT_SECRET` | 네이버 검색 API Client Secret | 미설정 시 네이버 지역 검색 생략 |
+| `NAVER_CLIENT_ID` | NAVER API HUB Client ID | 미설정 시 네이버 지역 검색 생략 |
+| `NAVER_CLIENT_SECRET` | NAVER API HUB Client Secret | 미설정 시 네이버 지역 검색 생략 |
 
 ### 맞춤 장소 추천 API 설정
 
@@ -59,7 +59,7 @@ npm start
 2. [공공데이터포털 국문 관광정보 서비스](https://www.data.go.kr/tcs/dss/selectApiDataDetailView.do?publicDataPk=15101578)에서 활용신청 후 Decoding 키를 `TOUR_API_SERVICE_KEY`에 입력
 3. [카카오디벨로퍼스](https://developers.kakao.com/)에서 앱을 만들고 REST API 키를 `KAKAO_REST_API_KEY`에 입력
 4. 필요할 때만 코스 지도를 펼쳐 보려면 같은 앱의 JavaScript 키를 `KAKAO_JAVASCRIPT_KEY`에 입력하고 `http://localhost:3000`을 JavaScript SDK 도메인으로 등록
-5. [네이버 개발자센터](https://developers.naver.com/)에서 검색 API 애플리케이션을 등록하고 Client ID/Secret을 입력
+5. 네이버 클라우드의 NAVER API HUB에서 검색 API 애플리케이션을 등록하고 Client ID/Secret을 입력합니다. [공식 이관 안내](https://guide.ncloud-docs.com/docs/apihub-migration). 기존 개발자센터 키와는 호환되지 않으며, 서버에서 API HUB 지역 검색(`/search/v1/local`)과 `X-NCP-APIGW-API-KEY-ID`/`X-NCP-APIGW-API-KEY` 헤더를 사용합니다.
 6. Google 연동은 사용하지 않습니다. 키가 있어도 추천 과정에서 호출하지 않습니다.
 7. 서버 재시작 후 멤버들이 방에서 여행 취향을 최대 3개까지 선택
 8. 방에서 새 여행을 만들고 참석자를 선택한 뒤 여행 기간, 차량 수 또는 대중교통, 숙소명·주소를 저장
