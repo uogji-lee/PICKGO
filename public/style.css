@@ -739,6 +739,22 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 #accommodationStatus { display:block; margin:12px 0; font-size:14px; }
 @media(max-width:560px) { #roomFinance {padding:12px;} #roomFinance .finance-section {padding:8px 12px 18px;} #roomFinance .finance-form {padding:14px;} .finance-actions {gap:8px;} }
 
+#profileForm { max-width: 560px; display: grid; gap: 16px; }
+#profileForm label, #addNicknameFriend label { display: grid; gap: 8px; font-weight: 600; min-width: 0; }
+#profileForm input, #addNicknameFriend input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 12px 14px; border: 1px solid #d6dce5; border-radius: 12px; background: #fafbfc; font: inherit; }
+#profileForm input:focus, #addNicknameFriend input:focus { outline: 3px solid #ffdfcf; border-color: #e97145; background: white; }
+#profileForm button { justify-self: start; min-width: 130px; }
+#profileForm .desc { margin: 0; line-height: 1.7; }
+.danger { color: #b42318; margin-left: 12px; }
+.action-dialog { border: 0; border-radius: 20px; padding: 28px; width: min(440px, calc(100vw - 48px)); box-sizing: border-box; box-shadow: 0 20px 80px #0003; }
+.action-dialog::backdrop { background: #17212b66; }
+.action-dialog p { line-height: 1.7; }
+.action-dialog label { display: grid; gap: 8px; }
+.action-dialog input { font: inherit; width: 100%; box-sizing: border-box; padding: 12px; }
+.dialog-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+.history-edit { padding: 16px 0; }
+.history-edit textarea { width: 100%; min-height: 90px; box-sizing: border-box; font: inherit; padding: 12px; }
+[hidden] { display: none !important; }
 @media (max-width: 560px) {
   .topbar { padding: 14px 16px; }
   .user-box span { display: none; }

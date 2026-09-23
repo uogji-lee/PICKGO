@@ -2,6 +2,7 @@ const roomTabState = new Map();
 function defaultRoomTab(room, previous) {
   const phase = `${room.activeTripId || 'none'}:${room.status}`;
   if (previous?.phase === phase) return previous.tab;
+  if (!room.activeTripId && previous?.tab === 'finance') return 'finance';
   return room.activeTripId && room.status === 'decided' ? 'course' : 'conditions';
 }
 function bindRoomTabs(room) {

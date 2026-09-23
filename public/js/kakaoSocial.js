@@ -10,7 +10,7 @@ async function loadKakaoPanel(container, room = null) {
       <p class="desc">PICKGO 가입과 친구 제공에 동의한 카카오 친구만 조회됩니다. 휴대폰 연락처 전체나 카카오톡의 모든 친구가 표시되지는 않습니다.</p>
       <button id="fetchKakaoFriends" class="secondary" ${!config.linked || !config.friendsEnabled ? 'disabled' : ''}>카카오 친구 불러오기</button>
       ${!config.friendsEnabled ? '<p class="desc">친구 목록은 카카오 개발자 콘솔의 권한·동의항목 설정 후 이용할 수 있습니다.</p>' : ''}
-      <p data-social-status role="status"></p><ul class="finance-records" id="kakaoCandidates"></ul><form id="addNicknameFriend" class="finance-inline"><label>PICKGO 닉네임으로 친구 추가<input name="nickname" minlength="2" maxlength="12" required placeholder="친구의 정확한 닉네임"></label><button>추가</button></form><p class="desc">내 친구 목록에 저장합니다. 상대방에게 자동으로 추가되거나 메시지가 전송되지는 않아요.</p><div id="pickgoFriends"></div><div id="roomInvitations"></div>`;
+      <p data-social-status role="status" aria-live="polite"></p><a id="kakaoRecovery" class="kakao-login-link" hidden href="/api/auth/kakao/start?mode=friends">친구 목록 동의하고 다시 연결</a><ul class="finance-records" id="kakaoCandidates"></ul><form id="addNicknameFriend" class="finance-inline"><label>PICKGO 닉네임으로 친구 추가<input name="nickname" minlength="2" maxlength="12" required placeholder="친구의 정확한 닉네임"></label><button>추가</button></form><p class="desc">내 친구 목록에 저장합니다. 상대방에게 자동으로 추가되거나 메시지가 전송되지는 않아요.</p><div id="pickgoFriends"></div><div id="roomInvitations"></div>`;
     const status = text => { if (container.isConnected) el('[data-social-status]', container).textContent = text; };
     async function listFriends() {
       const { friends } = await api('/friends');
@@ -34,7 +34,7 @@ async function loadKakaoPanel(container, room = null) {
     };
     let offset = 0;
     el('#fetchKakaoFriends', container).onclick = async event => {
-      event.target.disabled = true;
+      event.target.disabled = true; status('친구 목록 확인 중…'); el('#kakaoRecovery',container).hidden = true;
       try {
         const result = await api(`/kakao/friends?offset=${offset}`);
         if (!container.isConnected) return;
@@ -53,7 +53,11 @@ async function loadKakaoPanel(container, room = null) {
         status(result.friends.length ? '친구 목록을 불러왔습니다.' : '조회 가능한 친구가 없습니다. 친구도 PICKGO 카카오 연결과 친구 제공 동의를 완료해야 합니다.');
         offset = result.nextOffset || 0;
         event.target.textContent = result.nextOffset ? '친구 더 보기' : '친구 목록 새로고침';
-      } catch (error) { status(error.message); }
+       } catch (error) {
+        status(error.message);
+        const recovery = el('#kakaoRecovery',container);
+        recovery.hidden = !['KAKAO_CONSENT_REQUIRED','KAKAO_RECONNECT'].includes(error.code);
+      }
       event.target.disabled = false;
     };
     await listFriends();

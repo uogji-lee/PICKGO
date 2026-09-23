@@ -261,6 +261,7 @@ function buildFallbackRecommendations(region, _votes, limit = 6) {
 }
 
 function distanceKm(from, to) {
+  if ([from?.mapX,from?.mapY,to?.mapX,to?.mapY].some(value => value === null || value === undefined || String(value).trim() === '')) return null;
   const lat1 = Number(from?.mapY);
   const lon1 = Number(from?.mapX);
   const lat2 = Number(to?.mapY);
@@ -294,6 +295,8 @@ function normalizeTripPlanning(options = {}) {
   const transportMode = options.transportMode === 'car' && requestedVehicleCount > 0 ? 'car' : 'public';
   const vehicleCount = transportMode === 'car' ? requestedVehicleCount : 0;
   const accommodation = options.accommodation
+    && options.accommodation.mapX != null && options.accommodation.mapY != null
+    && String(options.accommodation.mapX).trim() !== '' && String(options.accommodation.mapY).trim() !== ''
     && Number.isFinite(Number(options.accommodation.mapX))
     && Number.isFinite(Number(options.accommodation.mapY))
     ? options.accommodation
@@ -374,7 +377,7 @@ function buildItinerary(places, selectedDate = null, nights = 1, options = {}) {
         : null;
       stops.push({
         time: slot.time,
-        title: slot.title,
+        title: available.length ? slot.title : '방문 후보 · 식사/휴식 장소 별도 확인',
         travelKmFromPrevious: chosen.distance === null ? null : Math.round(chosen.distance * 10) / 10,
         travelMinutesFromPrevious: estimateTravelMinutes(chosen.distance, planning.transportMode),
         travelOrigin: stops.length ? 'previous' : planning.accommodation ? 'accommodation' : null,

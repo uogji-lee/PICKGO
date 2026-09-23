@@ -8,7 +8,7 @@ process.env.PICKGO_JWT_SECRET = 'isolated-kakao-test-secret-not-production';
 const db = require('../db');
 const security = require('../services/security');
 const { registerKakaoAuth } = require('../services/kakaoAuth');
-let server, base, profileId = 1001, externalCalls = 0;
+let server, base, profileId = 1001, externalCalls = 0, simulatedError = null;
 const config = { clientId: 'test-client', clientSecret: 'test-secret', redirectUri: 'http://localhost:3000/api/auth/kakao/callback', friendsEnabled: true };
 const optionalAuth = (req, res, next) => { if (req.headers['x-test-user']) req.user = { id: Number(req.headers['x-test-user']) }; next(); };
 const auth = (req, res, next) => optionalAuth(req, res, () => req.user ? next() : res.status(401).json({ error: 'login' }));
@@ -19,6 +19,7 @@ before(async () => {
   app.use(express.json(), cookieParser());
   registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, { config, fetchImpl: async url => {
     externalCalls++;
+    if (simulatedError && url.includes('/talk/friends')) return {ok:false,status:403,json:async()=>({code:simulatedError})};
     let result;
     if (url.includes('/oauth/token')) result = { access_token: 'private-access-token', refresh_token: 'private-refresh-token', expires_in: 3600 };
     else if (url.includes('/v2/user/me')) result = { id: profileId, kakao_account: { profile: { nickname: '카카오친구' } } };
@@ -96,6 +97,16 @@ test('카카오 친구 증명으로만 추가하고 초대는 수신자만 수�
   assert.equal((await call(`/invites/${invites[0].id}/respond`, 2, { accept: true })).status, 200);
   assert.equal(db.prepare('SELECT active FROM room_members WHERE room_id=1 AND user_id=2').get().active, 1);
   assert.equal((await call(`/invites/${invites[0].id}/respond`, 2, { accept: true })).status, 404);
+});
+
+test('친구 동의 부족과 앱 권한 부족은 서로 다른 복구 방법을 반환한다', async () => {
+  for (const [provider,code] of [[-402,'KAKAO_CONSENT_REQUIRED'],[-5,'KAKAO_APP_PERMISSION']]) {
+    simulatedError=provider;
+    const result=await call('/kakao/friends',2);
+    assert.equal(result.status,403);
+    assert.equal((await result.json()).code,code);
+  }
+  simulatedError=null;
 });
 
 test('카카오 로그인은 기존 연결 계정을 재사용하며 설정 응답은 비밀값을 노출하지 않는다', async () => {

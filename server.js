@@ -193,7 +193,7 @@ app.post('/api/rooms/join', auth, (req, res) => {
   const { inviteCode } = req.body || {};
   if (!inviteCode) return res.status(400).json({ error: '초대코드를 입력해주세요.' });
   const room = db.prepare('SELECT * FROM rooms WHERE invite_code = ?').get(String(inviteCode).trim().toUpperCase());
-  if (!room) return res.status(404).json({ error: '존재하지 않는 초대코드입니다.' });
+  if (!room || room.deleted_at) return res.status(404).json({ error: '존재하지 않는 초대코드입니다.' });
   const already = db.prepare('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(room.id, req.user.id);
   if (already && !already.active) return res.status(403).json({ error: '추방된 방에는 다시 입장할 수 없습니다.' });
   if (!already && room.membership_locked) return res.status(403).json({ error: '멤버가 확정된 방입니다. 방장에게 초대를 요청해주세요.' });
@@ -208,15 +208,16 @@ app.get('/api/rooms/mine', auth, (req, res) => {
     SELECT r.id, r.title, r.invite_code, r.status, r.host_user_id
     FROM rooms r
     JOIN room_members m ON m.room_id = r.id
-    WHERE m.user_id = ? AND m.active = 1
+    WHERE m.user_id = ? AND m.active = 1 AND r.deleted_at IS NULL
     ORDER BY r.created_at DESC
   `).all(req.user.id);
-  res.json({ rooms: rows });
+  const deletedRooms = db.prepare('SELECT id,title,deleted_at FROM rooms WHERE host_user_id = ? AND deleted_at IS NOT NULL').all(req.user.id);
+  res.json({ rooms: rows, deletedRooms });
 });
 
 function getRoomOr404(req, res) {
   const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(req.params.id);
-  if (!room) { res.status(404).json({ error: '방을 찾을 수 없습니다.' }); return null; }
+  if (!room || room.deleted_at) { res.status(404).json({ error: '방을 찾을 수 없습니다.' }); return null; }
   return room;
 }
 
@@ -603,14 +604,20 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 
 registerRoomManagement(app, db, auth);
 
+app.get('/api/health', (req,res) => res.json({service:'PICKGO',status:'ok'}));
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'API를 찾을 수 없습니다.' }));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => {
+  const listener = app.listen(PORT, '127.0.0.1', () => {
     console.log(`PICKGO 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
+  });
+  listener.on('error', error => {
+    console.error(error.code === 'EADDRINUSE' ? `PICKGO: 포트 ${PORT}가 이미 사용 중입니다. 다른 프로젝트를 종료하지 말고 포트 소유자를 확인해주세요.` : `PICKGO server error: ${error.code}`);
+    process.exit(error.code === 'EADDRINUSE' ? 98 : 1);
   });
 }
 

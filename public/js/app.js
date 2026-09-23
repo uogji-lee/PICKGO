@@ -2,6 +2,16 @@ const el = (sel, root = document) => root.querySelector(sel);
 const appEl = () => document.getElementById('app');
 const userBoxEl = () => document.getElementById('userBox');
 
+function confirmAction(message, requireName = false) {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'action-dialog';
+    dialog.innerHTML = `<form method="dialog"><h2>확인해주세요</h2><p>${escapeHtml(message)}</p>${requireName ? '<label>방 이름<input name="confirmation" required autocomplete="off"></label>' : ''}<div class="dialog-actions"><button value="cancel" class="ghost" formnovalidate>취소</button><button value="confirm">확인</button></div></form>`;
+    dialog.addEventListener('close', () => { const result = dialog.returnValue === 'confirm' ? (requireName ? dialog.querySelector('input').value : true) : null; dialog.remove(); resolve(result); }, {once:true});
+    document.body.append(dialog); dialog.showModal();
+  });
+}
+
 let state = {
   user: null,
   view: 'loading', // loading | auth | rooms | room
@@ -17,7 +27,7 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   }); } catch { throw new Error('서버에 연결할 수 없습니다. 페이지 주소와 서버 실행 상태를 확인해주세요.'); }
   const data = await res.json().catch(() => { throw new Error('서버 응답을 읽지 못했습니다. 새로고침 후 다시 시도해주세요.'); });
-  if (!res.ok) { const error = new Error(data.error || '오류가 발생했습니다.'); error.status = res.status; throw error; }
+  if (!res.ok) { const error = new Error(data.error || '오류가 발생했습니다.'); error.status = res.status; error.code = data.code; throw error; }
   return data;
 }
 
@@ -136,10 +146,10 @@ function renderAuth() {
 // ---------- 방 목록 화면 ----------
 async function renderRoomList() {
   appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
-  let rooms = [];
+  let rooms = [], deletedRooms = [];
   try {
     const data = await api('/rooms/mine');
-    rooms = data.rooms;
+    rooms = data.rooms; deletedRooms = data.deletedRooms || [];
   } catch (e) {
     if (e.status === 401) { state.user = null; state.view = 'auth'; state.authNotice = '로그인이 만료되었습니다. 다시 로그인해주세요.'; render(); return; }
     appEl().innerHTML = `<div class="card"><p class="error-msg">${escapeHtml(e.message)}</p><button id="retryRooms">다시 불러오기</button></div>`;
@@ -173,6 +183,15 @@ async function renderRoomList() {
     </div>
   `;
 
+  const trash = document.createElement('details');
+  trash.className = 'card';
+  trash.innerHTML = '<summary>삭제한 방 · 방장만 복구 가능</summary>' + (deletedRooms.map(room => `<p>${escapeHtml(room.title)} <button class="ghost small" data-restore-room="${room.id}">복구</button></p>`).join('') || '<p class="desc">삭제한 방이 없습니다.</p>');
+  appEl().append(trash);
+  trash.querySelectorAll('[data-restore-room]').forEach(button => { button.onclick = async () => {
+    button.disabled = true;
+    try { await api(`/rooms/${button.dataset.restoreRoom}/restore`, {method:'POST',body:{}}); render(); }
+    catch(error) { alert(error.message); button.disabled = false; }
+  }; });
   loadKakaoPanel(el('#kakaoSocialPanel'));
   el('#createRoomBtn').onclick = async () => {
     const title = el('#newRoomTitle').value.trim();
@@ -240,7 +259,7 @@ async function renderRoomDetail() {
       <div class="room-header">
         <div>
           <h1 id="roomTitle">${escapeHtml(room.title)}</h1>
-          ${isHost ? `<button class="ghost small" id="editTitleBtn">방제 수정</button>` : ''}
+          ${isHost ? `<button class="ghost small" id="editTitleBtn">방제 수정</button><button class="ghost small danger" id="deleteRoomBtn">방 삭제</button>` : ''}
         </div>
       </div>
       <div class="invite-box">
@@ -404,6 +423,13 @@ async function renderRoomDetail() {
   if (el('#drawBtn')) el('#drawControls').append(el('#drawBtn').closest('details'));
   bindRoomTabs(room);
   el('#backBtn').onclick = () => { state.view = 'rooms'; calendarCursor = null; render(); };
+  const deleteButton = el('#deleteRoomBtn');
+  if (deleteButton) deleteButton.onclick = async () => {
+    const title = await confirmAction('삭제하면 모든 멤버에게서 숨겨집니다. 기록은 보존되며 방 목록에서 복구할 수 있어요. 방 이름을 정확히 입력하세요: ' + room.title, true);
+    if (title === null) return;
+    try { await api(`/rooms/${room.id}/delete`, {method:'POST',body:{title}}); state.view='rooms'; state.roomId=null; render(); }
+    catch(error) { alert(error.message); }
+  };
 
   el('#copyInviteBtn').onclick = () => {
     navigator.clipboard?.writeText(room.inviteCode).then(() => {
@@ -516,7 +542,7 @@ async function renderRoomDetail() {
     };
     const drawBtn = el('#drawBtn');
     if (drawBtn) drawBtn.onclick = async () => {
-      if (!confirm('여행지와 드레스코드를 랜덤으로 추첨할까요?')) return;
+      if (!await confirmAction('여행지와 드레스코드를 랜덤으로 추첨할까요?')) return;
       try {
         await api(`/rooms/${room.id}/draw`, { method: 'POST' });
         roomTabState.delete(room.id);

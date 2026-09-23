@@ -40,6 +40,43 @@ async function createRoom(managed = false) {
   return { ...data, path, tripId };
 }
 
+test('방 삭제는 방장만 가능하고 모든 접근을 차단하며 복구 시 장부를 보존한다', async () => {
+  const {path,roomId,inviteCode,tripId} = await createRoom(true);
+  await request(`${path}/finance/payments`,users[0],{userId:users[0].id,amount:10000});
+  assert.equal((await request(`${path}/delete`,users[1],{title:'정산 테스트'})).status,403);
+  assert.equal((await request(`${path}/delete`,users[0],{title:'오타'})).status,400);
+  assert.equal((await request(`${path}/delete`,users[0],{title:'정산 테스트'})).status,200);
+  assert.equal((await request(path,users[0])).status,404);
+  assert.equal((await request(`${path}/finance`,users[1])).status,404);
+  assert.equal((await request('/rooms/join',users[3],{inviteCode})).status,404);
+  const mine = (await request('/rooms/mine',users[0])).data;
+  assert.ok(!mine.rooms.some(room=>room.id===roomId));
+  assert.ok(mine.deletedRooms.some(room=>room.id===roomId));
+  assert.equal((await request(`${path}/restore`,users[1],{})).status,403);
+  assert.equal((await request(`${path}/restore`,users[0],{})).status,200);
+  const restored = (await request(`${path}/finance`,users[0])).data;
+  assert.equal(restored.poolBalance,10000);
+  assert.equal(restored.activeTripId,tripId);
+});
+
+test('방장 기록 수정은 날짜를 검증하고 완료 정산과 다음 여행을 보존한다', async () => {
+  const {path,tripId} = await createRoom(true);
+  await request(`${path}/trips/${tripId}/finish`,users[0],{});
+  const original = db.prepare('SELECT * FROM journeys WHERE id=?').get(tripId);
+  const next = await request(`${path}/trips`,users[0],{title:'다음 여행',date:'2026-10-10',participantIds:[users[0].id]});
+  const body = {title:'수정한 여행',date:'2026-09-20',nights:2,notes:'즐거웠던 카페 여행'};
+  assert.equal((await request(`${path}/trips/${tripId}/record`,users[1],body)).status,403);
+  assert.equal((await request(`${path}/trips/${tripId}/record`,users[0],{...body,date:'2026-02-30'})).status,400);
+  assert.equal((await request(`${path}/trips/${tripId}/record`,users[0],body)).status,200);
+  const changed = db.prepare('SELECT * FROM journeys WHERE id=?').get(tripId);
+  assert.equal(changed.title,body.title);
+  assert.equal(changed.notes,body.notes);
+  assert.equal(changed.settlement_json,original.settlement_json);
+  assert.equal(changed.participant_ids,original.participant_ids);
+  assert.equal(JSON.parse(db.prepare('SELECT before_json FROM journey_edits WHERE trip_id=?').get(tripId).before_json).title,original.title);
+  assert.equal((await request(`${path}/finance`,users[0])).data.activeTripId,next.data.tripId);
+});
+
 test('인증, 방 격리, 총무 권한, 역할 교체와 방장 위임을 서버에서 검사한다', async () => {
   const { path } = await createRoom();
   assert.equal((await request(`${path}/finance`)).status, 401);

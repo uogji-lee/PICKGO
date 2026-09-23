@@ -7,7 +7,7 @@ function registerRoomManagement(app, db, auth) {
     JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.id`).all(roomId);
   function access(req, permission = 'member') {
     const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(req.params.id);
-    if (!room) fail('방을 찾을 수 없습니다.', 404);
+    if (!room || room.deleted_at) fail('방을 찾을 수 없습니다.', 404);
     const member = members(room.id).find(person => person.id === req.user.id && person.active);
     if (!member) fail('방 멤버가 아닙니다.', 403);
     const isHost = room.host_user_id === req.user.id;
@@ -31,6 +31,18 @@ function registerRoomManagement(app, db, auth) {
       }
     });
   }
+  route('post', 'delete', req => {
+    const { room } = access(req, 'host');
+    if (req.body.title !== room.title) fail('삭제할 방 이름을 정확히 입력해주세요.');
+    db.prepare("UPDATE rooms SET deleted_at = datetime('now') WHERE id = ?").run(room.id);
+    return { ok: true };
+  });
+  route('post', 'restore', req => {
+    const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(req.params.id);
+    if (!room || room.host_user_id !== req.user.id) fail('방장만 복구할 수 있습니다.', 403);
+    db.prepare('UPDATE rooms SET deleted_at = NULL WHERE id = ?').run(room.id);
+    return { ok: true };
+  });
   route('post', 'members/:userId/role', req => {
     const { room } = access(req, 'host');
     const userId = Number(req.params.userId);

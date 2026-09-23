@@ -15,12 +15,27 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
   const error = (message, status = 400) => Object.assign(new Error(message), { status });
   const asyncRoute = handler => async (req, res) => {
     try { await handler(req, res); }
-    catch (err) { res.status(err.status || 502).json({ error: err.status ? err.message : '카카오 연결을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.' }); }
+    catch (err) { res.status(err.status || 502).json({ error: err.status ? err.message : '카카오 연결을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.', code: err.code || 'KAKAO_UNAVAILABLE' }); }
   };
   async function kakao(url, init = {}) {
     const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(10000) });
     const body = await response.json();
-    if (!response.ok) throw error(body.code === -402 ? '카카오 친구 목록 동의와 앱 권한이 필요합니다.' : '카카오 인증이 만료되었거나 앱 설정이 필요합니다. 카카오 계정을 다시 연결해주세요.', response.status === 401 ? 401 : 502);
+    if (!response.ok) {
+      const providerCode = String(body.code ?? body.error_code ?? 'unknown');
+      console.warn(`[Kakao API] status=${response.status} code=${providerCode.replace(/[^A-Za-z0-9_-]/g,'')}`);
+      const codes = {
+        '-5': ['카카오 앱에 친구 API 사용 권한이 없습니다. 개발자 콘솔의 추가 기능 신청에서 친구 API 권한을 확인해주세요. 개인 동의를 반복해도 해결되지 않습니다.', 403, 'KAKAO_APP_PERMISSION'],
+        'KOE320': ['카카오 인증 요청이 만료되었습니다. 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
+        'KOE322': ['카카오 연결 기간이 만료되었습니다. 친구 동의 버튼으로 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
+        '-402': ['친구 목록 동의가 필요합니다. 아래 동의 버튼을 누른 뒤 다시 불러와주세요.', 403, 'KAKAO_CONSENT_REQUIRED'],
+        '-401': ['카카오 인증이 만료되었습니다. 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
+        '-403': ['카카오 앱의 친구 API 권한을 확인해주세요. 개발 중인 앱은 팀원 등 허용된 사용자만 조회될 수 있습니다.', 403, 'KAKAO_APP_PERMISSION'],
+        '-10': ['카카오 앱의 친구 API 사용 권한을 확인해주세요.', 403, 'KAKAO_APP_PERMISSION'],
+        '-9': ['카카오 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.', 429, 'KAKAO_RATE_LIMIT'],
+      };
+      const [message, status, code] = codes[providerCode] || (response.status === 401 ? ['카카오 인증이 만료되었습니다. 다시 연결해주세요.',401,'KAKAO_RECONNECT'] : ['카카오 연결에 실패했습니다. 앱 설정과 연결 상태를 확인해주세요.', 502, 'KAKAO_UNAVAILABLE']);
+      throw Object.assign(error(message, status), {code});
+    }
     return body;
   }
   const tokenRequest = params => kakao('https://kauth.kakao.com/oauth/token', {
@@ -85,6 +100,10 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
           const nickname = String(raw).slice(0, 6) + '_' + crypto.randomBytes(3).toString('hex');
           id = db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run(nickname, '').lastInsertRowid;
         }
+        if (!tokens.refresh_token) {
+          const previous = db.prepare('SELECT tokens FROM kakao_accounts WHERE user_id=? AND kakao_id=?').get(id,kakaoId);
+          if (previous) { try { tokens.refresh_token = security.decrypt(previous.tokens).refresh_token; } catch {} }
+        }
         db.prepare(`INSERT INTO kakao_accounts(user_id,kakao_id,tokens,expires_at) VALUES (?,?,?,?)
           ON CONFLICT(user_id) DO UPDATE SET tokens=excluded.tokens,expires_at=excluded.expires_at`)
           .run(id, kakaoId, security.encrypt(tokens), Date.now() + tokens.expires_in * 1000);
@@ -107,7 +126,7 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
         added: Boolean(db.prepare('SELECT 1 FROM friend_links WHERE owner_id = ? AND friend_id = ?').get(req.user.id, account.user_id)),
         proof: jwt.sign({ owner: req.user.id, friend: account.user_id }, security.secret, { audience: 'friend-add', expiresIn: '5m' }) };
     }).filter(Boolean);
-    res.json({ friends, nextOffset: offset + 100 < result.total_count ? offset + 100 : null });
+    res.json({ friends, totalCount: result.total_count || 0, nextOffset: offset + 100 < result.total_count ? offset + 100 : null });
   }));
   app.post('/api/friends', auth, asyncRoute(async (req, res) => {
     let proof;
@@ -120,7 +139,7 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
   app.get('/api/friends', auth, (req, res) => res.json({ friends: db.prepare(`SELECT u.id,u.nickname FROM friend_links f JOIN users u ON u.id=f.friend_id WHERE f.owner_id=?`).all(req.user.id) }));
   app.post('/api/rooms/:id/invites', auth, asyncRoute(async (req, res) => {
     const room = db.prepare('SELECT * FROM rooms WHERE id=?').get(req.params.id);
-    if (!room || room.host_user_id !== req.user.id) throw error('방장만 친구를 초대할 수 있습니다.', 403);
+    if (!room || room.deleted_at || room.host_user_id !== req.user.id) throw error('방장만 친구를 초대할 수 있습니다.', 403);
     if (!db.prepare('SELECT 1 FROM friend_links WHERE owner_id=? AND friend_id=?').get(req.user.id, req.body.userId)) throw error('추가한 친구를 선택해주세요.');
     const member = db.prepare('SELECT active FROM room_members WHERE room_id=? AND user_id=?').get(room.id, req.body.userId);
     if (member) throw error(member.active ? '이미 참여 중입니다.' : '추방된 멤버입니다.');
@@ -129,13 +148,14 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     res.json({ ok: true });
   }));
   app.get('/api/invites', auth, (req, res) => res.json({ invites: db.prepare(`SELECT i.id,r.title,u.nickname AS sender FROM room_invites i
-    JOIN rooms r ON r.id=i.room_id JOIN users u ON u.id=i.sender_id WHERE recipient_id=? AND i.status='pending'`).all(req.user.id) }));
+    JOIN rooms r ON r.id=i.room_id JOIN users u ON u.id=i.sender_id WHERE recipient_id=? AND i.status='pending' AND r.deleted_at IS NULL`).all(req.user.id) }));
   app.post('/api/invites/:id/respond', auth, asyncRoute(async (req, res) => {
     if (typeof req.body.accept !== 'boolean') throw error('수락 여부를 선택해주세요.');
     const roomId = db.transaction(() => {
       const invite = db.prepare("SELECT * FROM room_invites WHERE id=? AND recipient_id=? AND status='pending'").get(req.params.id, req.user.id);
       if (!invite) throw error('초대를 찾을 수 없습니다.', 404);
       if (req.body.accept) {
+        if (!db.prepare('SELECT 1 FROM rooms WHERE id=? AND deleted_at IS NULL').get(invite.room_id)) throw error('삭제된 방입니다.', 404);
         const member = db.prepare('SELECT active FROM room_members WHERE room_id=? AND user_id=?').get(invite.room_id, req.user.id);
         if (member && !member.active) throw error('추방된 방에 입장할 수 없습니다.', 403);
         db.prepare('INSERT OR IGNORE INTO room_members(room_id,user_id) VALUES (?,?)').run(invite.room_id, req.user.id);

@@ -77,6 +77,7 @@ async function loadRoomFinance(room, members) {
       <details class="nested-collapsible" data-finance-pane="history"><summary>📚 우리 방 여행 기록 (${trips.length}회)</summary><div class="finance-section">
         ${trips.map(trip => `<details class="journey-history"><summary>${escapeHtml(trip.title)} · ${trip.status === 'completed' ? '여행 완료' : '진행 중'} · ${won(trip.spent)}</summary>${isHost || canManage ? `<form data-history-title="${trip.id}" class="finance-inline"><label>여행 이름<input name="title" value="${escapeHtml(trip.title)}" maxlength="60" required></label><button class="secondary">이름 저장</button></form>` : ''}<p>${escapeHtml(trip.plan.selected_date || '날짜 미정')} · ${tripLengthLabel(trip.plan.trip_nights)} · ${trip.participantIds.map(name).join(', ')}</p>
           <p class="desc">숙소 ${escapeHtml(trip.plan.accommodation_name || '미정')} · ${trip.plan.transport_mode === 'car' ? '차량' : '대중교통·도보'}</p>
+          ${isHost ? `<details class="history-edit"><summary>여행 기록 수정</summary><form data-history-record="${trip.id}" class="finance-form"><label>여행 이름<input name="title" maxlength="60" required value="${escapeHtml(trip.title)}"></label><label>출발일<input name="date" type="date" required value="${escapeHtml(trip.plan.selected_date || '')}"></label><label>여행 기간<select name="nights">${Array.from({length:8},(_,n)=>`<option value="${n}" ${n===trip.plan.trip_nights?'selected':''}>${tripLengthLabel(n)}</option>`).join('')}</select></label><label class="finance-wide">여행 메모<textarea name="notes" maxlength="2000">${escapeHtml(trip.notes || '')}</textarea></label><p class="desc finance-wide">참석자·지출·최초 정산·저장된 코스는 바꾸지 않습니다.</p><button>여행 기록 저장</button></form></details>` : (trip.notes ? `<p>${escapeHtml(trip.notes)}</p>` : '')}
           ${trip.settlement ? `<p class="desc">최초 종료 시점 정산 (보존) · 추가 지출과 입금은 상단 최신 경비·현재 잔액에 반영됩니다.</p><ul class="finance-records">${trip.settlement.people.map(person => `<li>${escapeHtml(person.nickname)} · 여행 부담 ${won(person.tripShare)} · ${person.balance < 0 ? `추가 납부 ${won(-person.balance)}` : `다음 여행 이월 ${won(person.balance)}`}</li>`).join('')}</ul>` : ''}
           <ul class="finance-records">${history.expenses.filter(expense => expense.trip_id === trip.id).map(expense => recordRow(expense, 'expenses')).join('') || '<li>기록한 지출이 없습니다.</li>'}</ul>
           ${trip.itinerary_json ? `<details><summary>저장된 여행 코스</summary>${JSON.parse(trip.itinerary_json).days.map(day => `<p>${day.dayNumber}일차 · ${day.stops.map(stop => escapeHtml(stop.place.name)).join(' → ')}</p>`).join('')}</details>` : ''}
@@ -102,6 +103,10 @@ async function loadRoomFinance(room, members) {
     }
     el('#refreshFinanceBtn', container).onclick = () => loadRoomFinance(room, members);
     container.querySelectorAll('[data-history-title]').forEach(target => { target.onsubmit = event => { event.preventDefault(); mutate(target.querySelector('button'), `trips/${target.dataset.historyTitle}/title`, {title:new FormData(target).get('title')}); }; });
+    container.querySelectorAll('[data-history-record]').forEach(target => { target.onsubmit = event => {
+      event.preventDefault(); const values = new FormData(target);
+      mutate(target.querySelector('button'), `trips/${target.dataset.historyRecord}/record`, {title:values.get('title'),date:values.get('date'),nights:Number(values.get('nights')),notes:values.get('notes')}, true);
+    }; });
     form('#treasurerForm', values => `members/${values.get('userId')}/role`, () => ({ role: 'treasurer' }), true);
     const lock = el('#lockMembersBtn', container);
     if (lock) lock.onclick = () => mutate(lock, 'membership', { locked: !data.membershipLocked }, true);
@@ -128,6 +133,13 @@ async function loadRoomFinance(room, members) {
       payer.onchange = update; paymentAmount.oninput = update; update();
     }
     container.querySelectorAll('[data-finance-open]').forEach(button => { button.onclick = () => { const pane = container.querySelector(`[data-finance-pane="${button.dataset.financeOpen}"]`); container.querySelectorAll('[data-finance-pane]').forEach(item => { item.open = item === pane; }); pane.scrollIntoView({behavior:'smooth',block:'start'}); }; });
+    if (finish) {
+      const finishArea = document.createElement('section');
+      finishArea.className = 'finance-section';
+      finishArea.innerHTML = `<h3>여행 마무리 · ${escapeHtml(current.title)}</h3><p class="desc">지출을 모두 기록한 뒤 종료하세요. 종료 후 추가 지출도 이 탭에서 기록할 수 있어요.</p>`;
+      finishArea.append(finish, el('#finishTripConfirm',container));
+      container.querySelector('.finance-stats').after(finishArea);
+    }
     const journeyControls = container.querySelector('[data-journey-controls]');
     const tripArea = el('#tripManagement');
     if (tripArea && journeyControls) tripArea.replaceChildren(journeyControls);

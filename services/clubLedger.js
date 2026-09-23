@@ -117,6 +117,20 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
     db.prepare('UPDATE rooms SET traveler_count = ? WHERE id = ?').run(req.body.participantIds.length, room.id);
     return { ok: true };
   });
+  route('post', 'trips/:tripId/record', req => {
+    const { room } = access(req, 'host');
+    const trip = tripById(room.id, Number(req.params.tripId));
+    const { title, date, nights, notes = '' } = req.body;
+    if (typeof title !== 'string' || !title.trim() || title.length > 60) fail('여행 이름을 1~60자로 입력해주세요.');
+    if (!validDate(date) || !Number.isInteger(nights) || nights < 0 || nights > 7) fail('날짜와 여행 기간(당일~7박)을 확인해주세요.');
+    if (typeof notes !== 'string' || notes.length > 2000) fail('여행 메모는 2000자 이내로 입력해주세요.');
+    db.prepare('INSERT INTO journey_edits(trip_id,edited_by,before_json) VALUES (?,?,?)').run(trip.id, req.user.id, JSON.stringify(trip));
+    const plan = trip.id === room.active_trip_id ? planSnapshot(room) : JSON.parse(trip.plan_json);
+    Object.assign(plan, {selected_date:date, trip_nights:nights});
+    db.prepare('UPDATE journeys SET title=?,plan_json=?,notes=? WHERE id=?').run(title.trim(), JSON.stringify(plan), notes.trim(), trip.id);
+    if (trip.id === room.active_trip_id) db.prepare('UPDATE rooms SET selected_date=?,trip_nights=? WHERE id=?').run(date,nights,room.id);
+    return {ok:true,message:'여행 기록을 수정했습니다. 기존 정산·참석자·저장된 코스는 변경하지 않았습니다.'};
+  });
   route('post', 'trips/:tripId/title', req => {
     const { room } = access(req, 'planner');
     const trip = tripById(room.id, Number(req.params.tripId));

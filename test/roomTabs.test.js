@@ -32,6 +32,7 @@ test('추첨 전 조건·추첨 후 코스를 기본 표시하며 같은 여행�
   assert.equal(defaultRoomTab({ activeTripId: 1, status: 'decided' }, { phase: '1:planning', tab: 'conditions' }), 'course');
   assert.equal(defaultRoomTab({ activeTripId: 1, status: 'decided' }, { phase: '1:decided', tab: 'finance' }), 'finance');
   assert.equal(defaultRoomTab({ activeTripId: 2, status: 'planning' }, { phase: '1:decided', tab: 'finance' }), 'conditions');
+  assert.equal(defaultRoomTab({ activeTripId: null, status: 'planning' }, { phase: '1:decided', tab: 'finance' }), 'finance');
 });
 test('탭 클릭·방향키·이동 버튼은 한 패널만 표시하고 포커스와 선택 상태를 갱신한다', () => {
   const panels = Object.fromEntries(['course', 'conditions', 'finance', 'members'].map(key => ['panel-' + key, { hidden: true }]));

@@ -3,6 +3,7 @@ module.exports = function migrate(db) {
     if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   };
   db.transaction(() => {
+    add('rooms', 'deleted_at', 'TEXT');
     add('rooms', 'treasurer_user_id', 'INTEGER REFERENCES users(id)');
     add('rooms', 'active_trip_id', 'INTEGER');
     add('rooms', 'monthly_amount', 'INTEGER NOT NULL DEFAULT 0');
@@ -49,6 +50,12 @@ module.exports = function migrate(db) {
       CREATE INDEX IF NOT EXISTS requests_room ON payment_requests(room_id);
     `);
     add('journeys', 'itinerary_json', 'TEXT');
+    add('journeys', 'notes', "TEXT NOT NULL DEFAULT ''");
+    db.exec(`CREATE TABLE IF NOT EXISTS journey_edits (
+      id INTEGER PRIMARY KEY, trip_id INTEGER NOT NULL REFERENCES journeys(id),
+      edited_by INTEGER NOT NULL REFERENCES users(id), before_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );`);
     db.exec(`CREATE TABLE IF NOT EXISTS packing_items (
       id INTEGER PRIMARY KEY, trip_id INTEGER NOT NULL REFERENCES journeys(id), title TEXT NOT NULL,
       category TEXT NOT NULL, owner_id INTEGER REFERENCES users(id), assignee_id INTEGER REFERENCES users(id),

@@ -12,6 +12,13 @@ const {
 } = require('../services/recommendations');
 const { createTourApiClient, parseRegionName } = require('../services/tourApi');
 
+test('좌표 없는 기본 명소는 0km나 식당으로 오인시키지 않는다', () => {
+  const places = Array.from({length:4},(_,id)=>({id,name:`명소${id}`,categoryCode:'FALLBACK',mapX:null,mapY:null}));
+  const result = buildItinerary(places,'2026-09-23',0);
+  assert.ok(result.days[0].stops.every(stop=>stop.travelKmFromPrevious===null && stop.travelMinutesFromPrevious===null));
+  assert.notEqual(result.days[0].stops[1].title,'점심 맛집');
+});
+
 test('여행 취향은 허용된 값만 중복 없이 최대 3개로 정리한다', () => {
   assert.deepEqual(
     normalizePreferenceIds(['nature', 'nature', 'invalid', 'food', 'culture', 'activity']),
