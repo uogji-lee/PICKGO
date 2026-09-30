@@ -120,7 +120,7 @@ sudo -u pickgo git -C $APP_DIR pull --ff-only origin "\$BRANCH"
 (cd $APP_DIR && sudo -u pickgo npm install --omit=dev --no-audit --no-fund)
 systemctl restart pickgo
 for i in \$(seq 1 20); do
-  if curl -fsS http://127.0.0.1:3000/api/health >/dev/null; then echo "업데이트 완료: \$(sudo -u pickgo git -C $APP_DIR log --oneline -1)"; exit 0; fi
+  if curl -fs http://127.0.0.1:3000/api/health >/dev/null; then echo "업데이트 완료: \$(sudo -u pickgo git -C $APP_DIR log --oneline -1)"; exit 0; fi
   sleep 1
 done
 echo "서버가 응답하지 않습니다. journalctl -u pickgo -n 50 으로 확인하세요." >&2; exit 1
@@ -129,6 +129,6 @@ chmod 755 /usr/local/bin/pickgo-backup /usr/local/bin/pickgo-update
 echo '0 4 * * * root /usr/local/bin/pickgo-backup' > /etc/cron.d/pickgo-backup
 
 echo "==> 상태 확인"
-for i in $(seq 1 20); do curl -fsS http://127.0.0.1:3000/api/health && echo && break; sleep 1; done
+for i in $(seq 1 20); do curl -fs http://127.0.0.1:3000/api/health && echo && break; sleep 1; done
 systemctl --no-pager --lines=0 status pickgo caddy | grep -E '●|Active'
 echo "완료: https://$DOMAIN"
