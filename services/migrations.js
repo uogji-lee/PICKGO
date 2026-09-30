@@ -13,6 +13,8 @@ module.exports = function migrate(db) {
     add('trip_payments', 'note', "TEXT NOT NULL DEFAULT ''");
     add('trip_expenses', 'trip_id', 'INTEGER');
     add('trip_refunds', 'trip_id', 'INTEGER');
+    add('room_members', 'origin_id', 'TEXT');
+    add('room_members', 'origin_mode', 'TEXT');
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_versions (name TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS journeys (

@@ -244,6 +244,9 @@ async function renderRoomDetail() {
   }
 
   const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
+  const originOptions = data.originOptions || [];
+  const originModes = data.originModes || {};
+  const originLabel = id => originOptions.find(option => option.id === id)?.label;
   const me = members.find(m => m.id === state.user.id);
   const planningSectionsOpen = 'open';
   localSelectedDates = new Set(me ? me.availability : []);
@@ -289,6 +292,34 @@ async function renderRoomDetail() {
     <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
     <div class="card"><p class="desc">1. 이름·날짜·참석자 → 2. 교통·숙소·취향 → 3. 추첨·코스 생성</p><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
+    <details class="card collapsible-card" ${planningSectionsOpen}>
+      <summary><h2>🧭 출발지 · 가기 쉬운 여행지</h2></summary>
+      <div class="collapsible-card-content">
+      <p class="desc">각자 출발하는 곳과 이동수단을 저장하면, 모두의 이동 시간을 비교해 가기 쉬운 여행지를 순서대로 보여줘요.</p>
+      <form id="originForm" class="origin-form">
+        <label>
+          <span>내 출발 지역</span>
+          <select name="originId">
+            <option value="">출발 지역 선택…</option>
+            ${[...new Set(originOptions.map(option => option.group))].map(group => `<optgroup label="${escapeHtml(group)}">${originOptions.filter(option => option.group === group).map(option => `<option value="${escapeHtml(option.id)}" ${me?.originId === option.id ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</optgroup>`).join('')}
+          </select>
+        </label>
+        <label>
+          <span>이동수단</span>
+          <select name="mode">
+            ${Object.entries(originModes).map(([value, label]) => `<option value="${value}" ${(me?.originMode || 'public') === value ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+          </select>
+        </label>
+        <div class="origin-actions">
+          <button type="button" class="ghost small" id="originLocate">📍 현재 위치로</button>
+          <button type="submit" class="secondary">출발지 저장</button>
+        </div>
+        <span id="originStatus" role="status"></span>
+      </form>
+      <div id="easyRegions"></div>
+      </div>
+    </details>
+
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통·숙소 조건</h2></summary>
       <div class="collapsible-card-content">
@@ -400,7 +431,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개</span>
+            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.originId ? `${escapeHtml(originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
@@ -554,6 +585,8 @@ async function renderRoomDetail() {
   bindMemberManagement(room, members);
   loadRoomFinance(room, members);
   loadPacking(room);
+  bindOriginForm(room, isHost);
+  if (room.activeTripId) loadEasyRegions(room, isHost);
   loadKakaoPanel(el('#kakaoSocialPanel'), room);
   if (room.activeTripId && room.status === 'decided') loadRecommendations(room.id);
 }
@@ -629,7 +662,7 @@ function renderResultCard(room) {
   return `
     <div class="card">
       <div class="region-result">
-        <div style="font-size:13px;color:var(--muted)">🎉 추첨 결과</div>
+        <div style="font-size:13px;color:var(--muted)">🎉 우리 여행지</div>
         <div class="region-name">${escapeHtml(region.name)}</div>
         ${room.selectedDate ? `<div class="trip-period-result">${escapeHtml(room.selectedDate)}${room.selectedEndDate !== room.selectedDate ? ` ~ ${escapeHtml(room.selectedEndDate)}` : ''} · ${tripLengthLabel(room.tripNights)}</div>` : ''}
         <div class="trip-period-result">${room.travelerCount}명 · ${room.transportMode === 'car' ? `차량 ${room.vehicleCount}대` : '대중교통·도보'} · ${room.accommodation ? `숙소 ${escapeHtml(room.accommodation.name)}` : '숙소 미정'}</div>

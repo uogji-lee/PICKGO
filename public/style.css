@@ -775,3 +775,31 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   .trip-confirm-controls button { grid-column: 1 / -1; }
   .itinerary-return { margin-left: 0; }
 }
+
+/* 출발지 · 가기 쉬운 여행지 */
+.origin-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; margin-bottom: 14px; }
+.origin-form label { display: flex; flex-direction: column; gap: 6px; }
+.origin-form label > span { color: var(--muted); font-size: 12px; font-weight: 700; }
+.origin-form select { min-width: 0; padding: 11px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--text); font-size: 14px; }
+.origin-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+#originStatus { grid-column: 1 / -1; color: var(--primary-dark); font-size: 13px; }
+#originStatus:empty { display: none; }
+.easy-region-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.easy-region { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: #fff; }
+.easy-region.chosen { border-color: var(--primary); background: #fff7f4; }
+.easy-region > button { margin-top: 8px; }
+.easy-region-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.easy-region-rank { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; }
+.easy-region-summary { margin-left: auto; color: var(--muted); font-size: 13px; }
+.easy-region-legs { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.easy-region-legs li { display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; align-items: center; gap: 8px; font-size: 13px; }
+.easy-region-legs small { grid-column: 2 / -1; color: var(--muted); font-size: 11px; margin-top: -4px; }
+.easy-leg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.easy-leg-bar { height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+.easy-leg-bar > span { display: block; height: 100%; border-radius: 4px; background: var(--available); }
+.easy-leg-time { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 700; }
+@media (max-width: 480px) {
+  .origin-form { grid-template-columns: 1fr; }
+  .easy-region-summary { margin-left: 0; width: 100%; }
+  .easy-region-legs li { grid-template-columns: 52px minmax(0, 1fr) auto; }
+}

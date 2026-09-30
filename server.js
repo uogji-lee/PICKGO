@@ -26,6 +26,7 @@ const {
 const { createKakaoLocalClient } = require('./services/kakaoLocal');
 const { createNaverLocalClient } = require('./services/naverLocal');
 const { createTourApiClient } = require('./services/tourApi');
+const reachability = require('./services/reachability');
 
 const JWT_SECRET = security.secret;
 const PORT = process.env.PORT || 3000;
@@ -229,7 +230,7 @@ function tripRoster(room) {
   const trip = room.active_trip_id && db.prepare('SELECT participant_ids FROM journeys WHERE id=? AND room_id=?').get(room.active_trip_id, room.id);
   return trip ? JSON.parse(trip.participant_ids) : null;
 }
-app.post(['/api/rooms/:id/draw', '/api/rooms/:id/select-date', '/api/rooms/:id/trip-settings'], auth, (req, res, next) => {
+app.post(['/api/rooms/:id/draw', '/api/rooms/:id/choose-region', '/api/rooms/:id/select-date', '/api/rooms/:id/trip-settings'], auth, (req, res, next) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (!room.active_trip_id) return res.status(409).json({ error: '방에서 새 여행을 먼저 만들어주세요.' });
@@ -242,7 +243,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference
+    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference, m.origin_id, m.origin_mode
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).map(m => ({
@@ -255,6 +256,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     preferences: normalizePreferenceIds(parseStringArray(m.preferences_json)),
     customPreference: normalizeCustomPreference(m.custom_preference),
     customPreferenceKeywords: interpretCustomPreference(m.custom_preference),
+    originId: reachability.normalizeOriginId(m.origin_id),
+    originMode: reachability.normalizeMode(m.origin_mode),
   }));
 
   // 날짜별 가능 인원 집계
@@ -306,7 +309,9 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     bestDates,
     bestCount,
     isHost: room.host_user_id === req.user.id,
-    preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label }))
+    preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label })),
+    originOptions: reachability.ORIGINS.map(({ id, group, label }) => ({ id, group, label })),
+    originModes: reachability.MODES,
   });
 });
 
@@ -359,6 +364,44 @@ app.post('/api/rooms/:id/preferences', auth, (req, res) => {
   db.prepare('UPDATE room_members SET preferences_json = ?, custom_preference = ? WHERE room_id = ? AND user_id = ?')
     .run(JSON.stringify(clean), cleanCustomPreference || null, room.id, req.user.id);
   res.json({ ok: true, preferences: clean, customPreference: cleanCustomPreference });
+});
+
+app.post('/api/rooms/:id/origin', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  const { originId, mode, lat, lng } = req.body || {};
+  // 현재 위치는 가장 가까운 출발 생활권으로만 바꿔 저장하고 정확한 좌표는 보관하지 않음
+  const resolvedOriginId = lat !== undefined || lng !== undefined
+    ? reachability.nearestOriginId(Number(lat), Number(lng))
+    : reachability.normalizeOriginId(originId);
+  const cleanMode = reachability.normalizeMode(mode);
+  if (!resolvedOriginId) return res.status(400).json({ error: '출발 지역을 목록에서 선택해주세요. 현재 위치가 국내가 아니면 직접 선택해야 합니다.' });
+  if (!cleanMode) return res.status(400).json({ error: '이동수단은 자가용 또는 대중교통 중에서 선택해주세요.' });
+  db.prepare('UPDATE room_members SET origin_id = ?, origin_mode = ? WHERE room_id = ? AND user_id = ?')
+    .run(resolvedOriginId, cleanMode, room.id, req.user.id);
+  res.json({ ok: true, originId: resolvedOriginId, mode: cleanMode });
+});
+
+app.get('/api/rooms/:id/easy-regions', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  const roster = tripRoster(room);
+  const travelers = db.prepare(`
+    SELECT u.id, u.nickname, m.origin_id, m.origin_mode
+    FROM room_members m JOIN users u ON u.id = m.user_id
+    WHERE m.room_id = ? AND m.active = 1
+  `).all(room.id).filter(member => !roster || roster.includes(member.id))
+    .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, mode: member.origin_mode }));
+  const ranking = reachability.rankRegions(travelers, regions);
+  const readyIds = new Set(ranking[0]?.legs.map(leg => leg.userId) || []);
+  res.json({
+    ranking: ranking.slice(0, Math.min(Math.max(Number(req.query.limit) || 5, 1), 10)),
+    readyCount: readyIds.size,
+    travelerCount: travelers.length,
+    missing: travelers.filter(traveler => !readyIds.has(traveler.userId)).map(traveler => traveler.nickname),
+  });
 });
 
 registerAccommodation(app, {auth,getRoomOr404,naverLocal,secret:JWT_SECRET});
@@ -429,25 +472,35 @@ app.post('/api/rooms/:id/select-date', auth, (req, res) => {
   res.json({ ok: true, selectedDate: date, selectedEndDate: addDaysToDate(date, nights), tripNights: nights });
 });
 
-app.post('/api/rooms/:id/draw', auth, (req, res) => {
-  const room = getRoomOr404(req, res);
-  if (!room) return;
-  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
-
+function decideRegion(room, region) {
   const roster = tripRoster(room);
   const members = db.prepare('SELECT user_id, dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id)
     .filter(member => !roster || roster.includes(member.user_id));
   const dresscodes = members.map(m => m.dresscode).filter(Boolean);
-
-  const region = regions[Math.floor(Math.random() * regions.length)];
   const finalDresscode = dresscodes.length
     ? dresscodes[Math.floor(Math.random() * dresscodes.length)]
     : null;
 
   db.prepare('UPDATE rooms SET selected_region_id = ?, selected_dresscode = ?, status = ? WHERE id = ?')
     .run(region.id, finalDresscode, 'decided', room.id);
+  return { region, dresscode: finalDresscode };
+}
 
-  res.json({ region, dresscode: finalDresscode });
+app.post('/api/rooms/:id/draw', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
+  res.json(decideRegion(room, regions[Math.floor(Math.random() * regions.length)]));
+});
+
+// 가기 쉬운 지역 순위 등에서 방장이 직접 여행지를 고르는 경우 (드레스코드는 추첨과 동일하게 랜덤)
+app.post('/api/rooms/:id/choose-region', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 여행지를 정할 수 있습니다.' });
+  const region = regions.find(item => item.id === String(req.body?.regionId || ''));
+  if (!region) return res.status(400).json({ error: '존재하지 않는 여행지입니다.' });
+  res.json(decideRegion(room, region));
 });
 
 app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
