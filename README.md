@@ -125,7 +125,16 @@ PICKGO_JWT_SECRET=원하는-비밀키 npm start
 
 `pm2`나 `systemd`로 상시 실행되게 등록하고, Nginx 등으로 도메인을 연결하면 됩니다.
 
-### 현재 운영 방식: Cloudflare Quick Tunnel (무료, 내 PC에서 실행)
+### 현재 운영 방식: AWS EC2 (서울, t4g.micro)
+
+- 주소: `https://<탄력적 IP의 점을 -로 바꾼 값>.sslip.io` (sslip.io + Caddy가 Let's Encrypt 인증서 자동 발급·갱신)
+- 최초 설치: 서버에 `deploy/aws/setup.sh` 업로드 후 `sudo bash setup.sh <도메인> <브랜치>` (Node 24, Caddy, systemd `pickgo` 서비스, 매일 04:00 DB 백업 14일 보관)
+- 코드 수정 반영: GitHub에 push → PC에서 `powershell -NoProfile -ExecutionPolicy Bypass -File scriptsws-update.ps1` (서버에서 DB 백업 → pull → npm install → 재시작). 브랜치 변경은 `-Branch main`
+- 서버 경로: 코드 `/opt/pickgo/app`, 설정 `/opt/pickgo/app/.env`(권한 600), DB `/var/lib/pickgo/pickgo.db`, 백업 `/var/backups/pickgo`
+- 로그: `sudo journalctl -u pickgo -n 100`, 재시작: `sudo systemctl restart pickgo`
+- SSH 키는 저장소 밖에 두고 Windows에서는 본인 계정 읽기 권한만 남겨야 합니다 (`icacls <키> /inheritance:r /grant:r "%USERNAME%:(R)"`). 집 IP가 바뀌면 보안 그룹 SSH 규칙을 '내 IP'로 다시 설정하세요.
+
+### 대안: Cloudflare Quick Tunnel (무료, 내 PC에서 실행)
 
 1. `winget install --id Cloudflare.cloudflared` 로 cloudflared 설치
 2. `.env`에 `NODE_ENV=production`, 32자 이상 `PICKGO_JWT_SECRET`, `PICKGO_TRUST_PROXY=1` 설정 (`PICKGO_PUBLIC_URL`은 스크립트가 자동 기록)
