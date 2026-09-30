@@ -665,8 +665,10 @@ app.get('*', (req, res) => {
 });
 
 if (require.main === module) {
-  const listener = app.listen(PORT, '127.0.0.1', () => {
-    console.log(`PICKGO 서버가 http://localhost:${PORT} 에서 실행 중입니다.`);
+  // 기본은 모든 네트워크 인터페이스(0.0.0.0). 내 PC에서만 열려면 HOST=127.0.0.1
+  const HOST = process.env.HOST || '0.0.0.0';
+  const listener = app.listen(PORT, HOST, () => {
+    console.log(`PICKGO 서버가 http://localhost:${PORT} 에서 실행 중입니다. (${HOST})`);
   });
   listener.on('error', error => {
     console.error(error.code === 'EADDRINUSE' ? `PICKGO: 포트 ${PORT}가 이미 사용 중입니다. 다른 프로젝트를 종료하지 말고 포트 소유자를 확인해주세요.` : `PICKGO server error: ${error.code}`);

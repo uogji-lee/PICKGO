@@ -41,6 +41,7 @@ npm start
 | 변수명 | 설명 | 기본값 |
 | --- | --- | --- |
 | `PORT` | 서버 포트 | `3000` |
+| `HOST` | 서버 수신 주소 | `0.0.0.0` |
 | `PICKGO_JWT_SECRET` | 로그인 서명·카카오 토큰 암호화 비밀키. 운영 환경 32자 이상 필수 | 로컬은 `data/.session-secret`에 자동 생성 |
 | `PICKGO_PUBLIC_URL` | 브라우저 접속 주소. 운영 환경 HTTPS 필수 | `http://localhost:3000` |
 | `KAKAO_CLIENT_SECRET` | 카카오 로그인용 클라이언트 시크릿 (지도 키와 별개) | 미설정 시 카카오 로그인 대기 |
@@ -124,7 +125,18 @@ PICKGO_JWT_SECRET=원하는-비밀키 npm start
 
 `pm2`나 `systemd`로 상시 실행되게 등록하고, Nginx 등으로 도메인을 연결하면 됩니다.
 
---> 비용 문제로 Cloudflare Tunnel 사용
+### 현재 운영 방식: Cloudflare Quick Tunnel (무료, 내 PC에서 실행)
+
+1. `winget install --id Cloudflare.cloudflared` 로 cloudflared 설치
+2. `.env`에 `NODE_ENV=production`, 32자 이상 `PICKGO_JWT_SECRET`, `PICKGO_TRUST_PROXY=1` 설정 (`PICKGO_PUBLIC_URL`은 스크립트가 자동 기록)
+3. 실행: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/cloudflare-tunnel.ps1 Start`
+   → `https://xxxx.trycloudflare.com` 주소를 받아 `.env`에 기록하고 PICKGO 서버를 재시작합니다.
+4. 주소 확인 `... cloudflare-tunnel.ps1 Status`, 종료 `... cloudflare-tunnel.ps1 Stop` 후 `scripts/local-server.ps1 Stop`
+
+- PC가 켜져 있고 스크립트가 실행 중일 때만 접속됩니다. 재부팅·재실행하면 주소가 바뀌니 친구들에게 새 주소를 공유하세요.
+- 주소가 계속 바뀌므로 카카오 로그인(고정 Redirect URI 필요)은 Quick Tunnel에서 사용하기 어렵습니다. 닉네임·비밀번호 로그인은 정상 동작합니다.
+- 도메인을 구매하면 `cloudflared tunnel login` → Named Tunnel 생성 후 `cloudflare-tunnel.ps1 Start -TunnelName pickgo`로 고정 주소 운영이 가능합니다.
+- 서버는 기본 `0.0.0.0`에서 수신합니다. 내 PC에서만 열려면 `.env`에 `HOST=127.0.0.1`을 추가하세요 (터널은 그대로 동작).
 
 
 
