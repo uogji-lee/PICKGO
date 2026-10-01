@@ -23,6 +23,8 @@ function safeWebUrl(value) {
 
 function createKakaoLocalClient(options = {}) {
   const restApiKey = options.restApiKey || process.env.KAKAO_REST_API_KEY || '';
+  // 앱에서 카카오맵(로컬) 서비스가 꺼져 있으면(401·403) 이후로는 호출하지 않고 미설정처럼 취급
+  let disabled = process.env.KAKAO_LOCAL_DISABLED === 'true';
   const fetchImpl = options.fetchImpl || global.fetch;
   const timeoutMs = options.timeoutMs || 6000;
   const cache = new Map();
@@ -70,6 +72,11 @@ function createKakaoLocalClient(options = {}) {
       clearTimeout(timeout);
     }
 
+    if ([401, 403].includes(response.status)) {
+      if (!disabled) console.warn('[Kakao Local] 이 앱에서 카카오 로컬 API를 쓸 수 없어 이후 호출을 건너뜁니다.');
+      disabled = true;
+      throw Object.assign(new Error('카카오 로컬 API 사용 권한이 없습니다.'), { code: 'KAKAO_LOCAL_DISABLED' });
+    }
     if (!response.ok) throw new Error(`카카오 로컬 API 요청 실패 (${response.status})`);
     const json = await response.json();
     return writeCache(cacheKey, Array.isArray(json.documents) ? json.documents : []);
@@ -149,7 +156,7 @@ function createKakaoLocalClient(options = {}) {
 
   return {
     getPersonalizedPlaces,
-    isConfigured: () => Boolean(restApiKey),
+    isConfigured: () => Boolean(restApiKey) && !disabled,
     searchKeyword,
   };
 }

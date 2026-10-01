@@ -47,3 +47,15 @@ test('카카오 로컬 API에 REST 키를 헤더로 보내고 장소를 정규�
   assert.equal(places.some(place => place.categoryCode === 'CE7'), true);
   assert.equal(places.some(place => place.customKeyword === '반려동물 동반'), true);
 });
+
+test('카카오맵(로컬) 서비스가 꺼진 앱이면 한 번 거절된 뒤로는 호출하지 않고 미설정처럼 취급한다', async () => {
+  let calls = 0;
+  const client = createKakaoLocalClient({
+    restApiKey: 'disabled-app-key',
+    fetchImpl: async () => { calls++; return { ok: false, status: 403, json: async () => ({ errorType: 'NotAuthorizedError' }) }; },
+  });
+  assert.equal(client.isConfigured(), true);
+  await assert.rejects(client.searchKeyword({ query: '정선' }), error => error.code === 'KAKAO_LOCAL_DISABLED');
+  assert.equal(client.isConfigured(), false);
+  assert.equal(calls, 1);
+});

@@ -692,8 +692,6 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       console.warn(`[TourAPI] ${error.message}`);
       notices.push('관광정보 API에 일시적으로 연결할 수 없습니다.');
     }
-  } else {
-    notices.push('TOUR_API_SERVICE_KEY가 없어 기본 관광정보를 사용합니다.');
   }
 
   if (!tourItems.length) {
@@ -711,11 +709,12 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
       }
       else notices.push('카카오맵에서 취향에 맞는 주변 장소를 찾지 못했습니다.');
     } catch (error) {
-      console.warn(`[Kakao Local] ${error.message}`);
-      notices.push('카카오 로컬 API에 일시적으로 연결할 수 없습니다.');
+      // 권한이 없는(서비스 비활성) 경우는 사용자에게 오류로 보여주지 않음
+      if (error.code !== 'KAKAO_LOCAL_DISABLED') {
+        console.warn(`[Kakao Local] ${error.message}`);
+        notices.push('카카오 장소 검색에 일시적으로 연결할 수 없습니다.');
+      }
     }
-  } else {
-    notices.push('카카오 로컬 키를 추가하면 실시간 맛집·카페·체험 검색을 우선 반영합니다.');
   }
 
   if (naverLocal.isConfigured()) {

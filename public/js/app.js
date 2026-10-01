@@ -872,9 +872,7 @@ async function loadRecommendations(roomId) {
         <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
       </div>
       <div class="integration-status">
-        <span class="${data.integrationStatus?.tourApi?.connected ? 'connected' : ''}">TourAPI ${data.integrationStatus?.tourApi?.connected ? '연결됨' : data.integrationStatus?.tourApi?.configured ? '연결 오류' : '키 필요'}</span>
-        <span class="${data.integrationStatus?.kakaoLocal?.connected ? 'connected' : ''}">카카오 로컬 ${data.integrationStatus?.kakaoLocal?.connected ? '연결됨' : data.integrationStatus?.kakaoLocal?.configured ? '연결 오류' : '키 필요'}</span>
-        <span class="${data.integrationStatus?.naverLocal?.connected ? 'connected' : ''}">네이버 지역검색 ${data.integrationStatus?.naverLocal?.connected ? '연결됨' : data.integrationStatus?.naverLocal?.configured ? '연결 오류' : '키 필요'}</span>
+        ${[['tourApi', '관광공사'], ['kakaoLocal', '카카오맵'], ['naverLocal', '네이버']].filter(([key]) => data.integrationStatus?.[key]?.connected).map(([, label]) => `<span class="connected">${label} 정보 반영</span>`).join('')}
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
       <div class="route-context">
