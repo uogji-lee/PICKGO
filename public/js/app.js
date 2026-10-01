@@ -7,7 +7,19 @@ function confirmAction(message, requireName = false) {
     const dialog = document.createElement('dialog');
     dialog.className = 'action-dialog';
     dialog.innerHTML = `<form method="dialog"><h2>확인해주세요</h2><p>${escapeHtml(message)}</p>${requireName ? '<label>방 이름<input name="confirmation" required autocomplete="off"></label>' : ''}<div class="dialog-actions"><button value="cancel" class="ghost" formnovalidate>취소</button><button value="confirm">확인</button></div></form>`;
-    dialog.addEventListener('close', () => { const result = dialog.returnValue === 'confirm' ? (requireName ? dialog.querySelector('input').value : true) : null; dialog.remove(); resolve(result); }, {once:true});
+    // 버튼 제출(submit)에서 바로 결정하고, close 이벤트는 ESC 등 예외 경로의 예비로만 사용
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      const result = value === 'confirm' ? (requireName ? dialog.querySelector('input').value : true) : null;
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+    dialog.querySelector('form').addEventListener('submit', event => { event.preventDefault(); finish(event.submitter?.value); });
+    dialog.addEventListener('cancel', event => { event.preventDefault(); finish('cancel'); });
+    dialog.addEventListener('close', () => finish(dialog.returnValue), { once: true });
     document.body.append(dialog); dialog.showModal();
   });
 }
@@ -294,7 +306,7 @@ let calendarCursor = null; // {year, month} 0-indexed month
 let localSelectedDates = new Set();
 
 // 같은 방을 다시 그릴 때(저장 버튼 등) 화면을 비우지 않고, 스크롤 위치와 카드 접힘 상태를 이어서 보여줌
-const LIVE_SECTIONS = ['tripManagement', 'roomFinance', 'expenseOverview', 'settleExpenses', 'settleFinish', 'memberAdmin', 'tripRecords', 'packingContent', 'lodgingPanel', 'easyRegions', 'kakaoSocialPanel', 'pastTrips'];
+const LIVE_SECTIONS = ['destinationPanel', 'tripManagement', 'roomFinance', 'expenseOverview', 'settleExpenses', 'settleFinish', 'memberAdmin', 'tripRecords', 'packingContent', 'lodgingPanel', 'easyRegions', 'kakaoSocialPanel', 'pastTrips'];
 function captureRoomView() {
   if (state.renderedRoomId !== state.roomId || !appEl().querySelector('.room-tabs')) return null;
   return {
@@ -398,6 +410,40 @@ async function renderRoomDetail() {
     <div class="card"><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
+      <summary><h2>📅 가능한 날짜 표시하기</h2></summary>
+      <div class="collapsible-card-content">
+      <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 날짜 아래 인원수를 누르면 누가 가능한지 볼 수 있어요.</p>
+      <div class="month-nav">
+        <button class="ghost small" id="prevMonth">◀</button>
+        <span id="monthLabel"></span>
+        <button class="ghost small" id="nextMonth">▶</button>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="calendar-legend" aria-hidden="true">
+        <span><i class="legend-mine"></i>내가 가능한 날</span>
+        <span><b class="legend-best">유력!</b>가장 많이 가능한 날</span>
+        <span><i class="legend-final"></i>확정 일정</span>
+      </div>
+      <p id="dateVoters" class="date-voters" role="status" hidden></p>
+      <button class="block" id="saveAvailBtn">내 가능 날짜 저장</button>
+      ${bestDates.length ? `<p class="desc" style="margin-top:12px">🔥 최다 인원(${data.bestCount}명) 가능일: <strong>${bestDates.join(', ')}</strong></p>` : ''}
+      ${isHost ? `
+        <div class="trip-confirm-controls" style="margin-top:8px">
+          <select id="finalDateSelect">
+            <option value="">최종 날짜 선택...</option>
+            ${bestDates.map(d => `<option value="${d}" ${room.selectedDate === d ? 'selected' : ''}>${d}</option>`).join('')}
+          </select>
+          <select id="tripNightsSelect" aria-label="여행 기간">
+            ${Array.from({ length: 8 }, (_, nights) => `<option value="${nights}" ${room.tripNights === nights ? 'selected' : ''}>${tripLengthLabel(nights)}</option>`).join('')}
+          </select>
+          <button class="secondary" id="confirmDateBtn">일정 확정</button>
+        </div>
+      ` : ''}
+      ${room.selectedDate ? `<p class="desc" style="margin-top:8px">✅ 확정 일정: <strong>${room.selectedDate}${room.selectedEndDate !== room.selectedDate ? ` ~ ${room.selectedEndDate}` : ''} · ${tripLengthLabel(room.tripNights)}</strong></p>` : ''}
+      </div>
+    </details>
+
+    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>📍 출발지 공유</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">어디서 출발하는지 멤버들과 공유해요. 집 대신 역·동네처럼 대략적인 위치를 골라도 괜찮아요.</p>
@@ -440,11 +486,24 @@ async function renderRoomDetail() {
     </details>
 
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>🧭 가기 쉬운 여행지 추천</h2></summary>
+      <summary><h2>🎯 여행지 정하기</h2></summary>
+      <div class="collapsible-card-content" id="destinationPanel">여행지 정보를 불러오는 중…</div>
+    </details>
+
+    <details class="card collapsible-card" ${planningSectionsOpen} ${room.trip?.destinationMethod === 'easy' ? 'hidden' : ''}>
+      <summary><h2>🧭 참고: 가기 쉬운 여행지</h2></summary>
       <div class="collapsible-card-content">
       <label class="dresscode-toggle"><input type="checkbox" id="easyToggle" /><span>참석자 중간지점 기준으로 추천 보기</span></label>
       <p class="desc">공유한 출발지의 중간지점을 찾고, 그 근처에서 모두가 가기 공평한 여행지를 보여줘요.</p>
       <div id="easyRegions" hidden></div>
+      </div>
+    </details>
+
+    <details class="card collapsible-card" ${planningSectionsOpen}>
+      <summary><h2>🏠 숙소 후보 · 투표</h2></summary>
+      <div class="collapsible-card-content">
+      ${room.accommodation ? `<p class="trip-settings-saved">📍 확정 숙소: ${room.accommodation.url ? `<a href="${escapeHtml(room.accommodation.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(room.accommodation.name)} ↗</a>` : escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
+      <div id="lodgingPanel">숙소 후보 불러오는 중…</div>
       </div>
     </details>
 
@@ -480,14 +539,6 @@ async function renderRoomDetail() {
     </details>
 
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>🏠 숙소 후보 · 투표</h2></summary>
-      <div class="collapsible-card-content">
-      ${room.accommodation ? `<p class="trip-settings-saved">📍 확정 숙소: ${room.accommodation.url ? `<a href="${escapeHtml(room.accommodation.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(room.accommodation.name)} ↗</a>` : escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
-      <div id="lodgingPanel">숙소 후보 불러오는 중…</div>
-      </div>
-    </details>
-
-    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>✨ 내 여행 취향</h2></summary>
       <div class="collapsible-card-content">
       <p class="desc">최대 3개를 골라주세요. 같은 취향을 선택한 인원이 많을수록 코스에 더 강하게 반영돼요.</p>
@@ -510,40 +561,6 @@ async function renderRoomDetail() {
     </details>
 
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>📅 가능한 날짜 표시하기</h2></summary>
-      <div class="collapsible-card-content">
-      <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 날짜 아래 인원수를 누르면 누가 가능한지 볼 수 있어요.</p>
-      <div class="month-nav">
-        <button class="ghost small" id="prevMonth">◀</button>
-        <span id="monthLabel"></span>
-        <button class="ghost small" id="nextMonth">▶</button>
-      </div>
-      <div class="calendar-grid" id="calendarGrid"></div>
-      <div class="calendar-legend" aria-hidden="true">
-        <span><i class="legend-mine"></i>내가 가능한 날</span>
-        <span><b class="legend-best">유력!</b>가장 많이 가능한 날</span>
-        <span><i class="legend-final"></i>확정 일정</span>
-      </div>
-      <p id="dateVoters" class="date-voters" role="status" hidden></p>
-      <button class="block" id="saveAvailBtn">내 가능 날짜 저장</button>
-      ${bestDates.length ? `<p class="desc" style="margin-top:12px">🔥 최다 인원(${data.bestCount}명) 가능일: <strong>${bestDates.join(', ')}</strong></p>` : ''}
-      ${isHost ? `
-        <div class="trip-confirm-controls" style="margin-top:8px">
-          <select id="finalDateSelect">
-            <option value="">최종 날짜 선택...</option>
-            ${bestDates.map(d => `<option value="${d}" ${room.selectedDate === d ? 'selected' : ''}>${d}</option>`).join('')}
-          </select>
-          <select id="tripNightsSelect" aria-label="여행 기간">
-            ${Array.from({ length: 8 }, (_, nights) => `<option value="${nights}" ${room.tripNights === nights ? 'selected' : ''}>${tripLengthLabel(nights)}</option>`).join('')}
-          </select>
-          <button class="secondary" id="confirmDateBtn">일정 확정</button>
-        </div>
-      ` : ''}
-      ${room.selectedDate ? `<p class="desc" style="margin-top:8px">✅ 확정 일정: <strong>${room.selectedDate}${room.selectedEndDate !== room.selectedDate ? ` ~ ${room.selectedEndDate}` : ''} · ${tripLengthLabel(room.tripNights)}</strong></p>` : ''}
-      </div>
-    </details>
-
-    <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👗 드레스 코드${room.dresscodeEnabled ? '' : ' · 사용 안 함'}</h2></summary>
       <div class="collapsible-card-content">
       ${isHost ? `<label class="dresscode-toggle"><input type="checkbox" id="dresscodeToggle" ${room.dresscodeEnabled ? 'checked' : ''} /><span>이번 여행에 드레스코드 뽑기 사용</span></label>` : ''}
@@ -561,7 +578,6 @@ async function renderRoomDetail() {
     </details>
 
     </div>
-    <div id="drawControls"></div>
     </section>
     <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
       <div class="card"><h2>🧳 지난 여행</h2><p class="desc">끝난 여행만 모아 보여줘요. 진행 중인 여행은 여행 탭에서 확인하세요.</p><div id="pastTrips">불러오는 중…</div></div>
@@ -586,18 +602,8 @@ async function renderRoomDetail() {
     <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     </section>
 
-    ${isHost && room.activeTripId ? `
-      <details class="card collapsible-card" ${planningSectionsOpen}>
-        <summary><h2>🎲 여행지${room.dresscodeEnabled ? ' & 드레스코드' : ''} 추첨</h2></summary>
-        <div class="collapsible-card-content">
-        <p class="desc">모든 인원이 다 모였다면, 지금 랜덤으로 여행지${room.dresscodeEnabled ? '와 드레스코드' : ''}를 뽑아보세요!</p>
-        <button class="block" id="drawBtn">${room.status === 'decided' ? '다시 추첨하기' : '추첨하기'}</button>
-        </div>
-      </details>
-    ` : ''}
   `;
 
-  if (el('#drawBtn')) el('#drawControls').append(el('#drawBtn').closest('details'));
   bindRoomTabs(room);
   restoreRoomView(snapshot);
   el('#backBtn').onclick = () => { state.view = 'rooms'; calendarCursor = null; render(); };
@@ -722,18 +728,6 @@ async function renderRoomDetail() {
         render();
       } catch (e) { showToast(e.message, 'error'); }
     };
-    const drawBtn = el('#drawBtn');
-    if (drawBtn) drawBtn.onclick = async () => {
-      if (!await confirmAction(room.dresscodeEnabled ? '여행지와 드레스코드를 랜덤으로 추첨할까요?' : '여행지를 랜덤으로 추첨할까요?')) return;
-      try {
-        const names = await regionNames();
-        const result = await api(`/rooms/${room.id}/draw`, { method: 'POST' });
-        await runDrawAnimation({ pool: names, final: result.region.name, subPool: tripMembers.map(m => m.dresscode).filter(Boolean), subFinal: result.dresscode });
-        roomTabState.delete(room.id);
-        state.roomSummary = { roomId: room.id, regionId: result.region.id }; // 내가 뽑은 결과는 다시 연출하지 않음
-        render();
-      } catch (e) { showToast(e.message, 'error'); }
-    };
   }
 
   startRoomSync(room.id);
@@ -746,6 +740,7 @@ async function renderRoomDetail() {
   loadRoomFinance(room, members);
   loadPacking(room);
   loadLodging(room);
+  loadDestination(room, isHost, tripMembers);
   loadPastTrips(room);
   bindOriginForm(room, isHost, me, tripMembers, mapKey);
   if (room.activeTripId) bindEasyRegions(room, isHost, tripMembers, mapKey);

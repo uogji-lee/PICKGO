@@ -76,6 +76,20 @@ module.exports = function migrate(db) {
       trip_id INTEGER NOT NULL REFERENCES journeys(id), user_id INTEGER NOT NULL REFERENCES users(id),
       candidate_id INTEGER NOT NULL REFERENCES lodging_candidates(id), PRIMARY KEY(trip_id, user_id)
     );`);
+    add('journeys', 'destination_method', "TEXT NOT NULL DEFAULT 'random'");
+    add('journeys', 'draw_limit', 'INTEGER NOT NULL DEFAULT 2');
+    add('journeys', 'draw_count', 'INTEGER NOT NULL DEFAULT 0');
+    add('rooms', 'selected_region_json', 'TEXT');
+    db.exec(`CREATE TABLE IF NOT EXISTS destination_candidates (
+      id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES rooms(id), trip_id INTEGER NOT NULL REFERENCES journeys(id),
+      region_key TEXT NOT NULL, region_json TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), deleted INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS destination_trip ON destination_candidates(trip_id);
+    CREATE TABLE IF NOT EXISTS destination_votes (
+      trip_id INTEGER NOT NULL REFERENCES journeys(id), user_id INTEGER NOT NULL REFERENCES users(id),
+      region_key TEXT NOT NULL, PRIMARY KEY(trip_id, user_id)
+    );`);
     add('lodging_candidates', 'image_url', 'TEXT');
     add('lodging_candidates', 'bedrooms', 'INTEGER');
     add('lodging_candidates', 'beds', 'INTEGER');

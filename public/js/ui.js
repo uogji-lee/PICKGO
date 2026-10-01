@@ -51,11 +51,18 @@ function showPrompt({ title = '입력', message = '', defaultValue = '', okText 
     dialog.innerHTML = `<form method="dialog"><h2>${escapeHtml(title)}</h2>${message ? `<p>${escapeHtml(message)}</p>` : ''}
       <input name="value" maxlength="${maxlength}" value="${escapeHtml(defaultValue)}" autocomplete="off" required>
       <div class="dialog-actions"><button value="cancel" class="ghost" formnovalidate>취소</button><button value="confirm">${escapeHtml(okText)}</button></div></form>`;
-    dialog.addEventListener('close', () => {
-      const value = dialog.returnValue === 'confirm' ? dialog.querySelector('input').value.trim() : null;
+    let settled = false;
+    const finish = confirmed => {
+      if (settled) return;
+      settled = true;
+      const value = confirmed ? dialog.querySelector('input').value.trim() : null;
+      if (dialog.open) dialog.close();
       dialog.remove();
       resolve(value || null);
-    }, { once: true });
+    };
+    dialog.querySelector('form').addEventListener('submit', event => { event.preventDefault(); finish(event.submitter?.value !== 'cancel'); });
+    dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
+    dialog.addEventListener('close', () => finish(dialog.returnValue === 'confirm'), { once: true });
     document.body.append(dialog);
     dialog.showModal();
     dialog.querySelector('input').select();

@@ -1028,3 +1028,30 @@ input, select, textarea { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .skeleton-card .skeleton-line, .draw-region.landed { animation: none; } }
 .sync-banner { position: sticky; top: 70px; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--primary); border-radius: 12px; background: var(--accent-soft); color: var(--text); font-size: 14px; }
 .sync-banner button { margin: 0; }
+
+/* 여행지 정하기 */
+.dest-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 14px; margin-bottom: 6px; }
+.dest-method { display: grid; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.dest-method select { min-width: 220px; }
+.dest-method-label { margin: 0; }
+.dest-draws { color: var(--primary-dark); font-weight: 700; font-size: 14px; }
+.dest-draws small { color: var(--muted); font-weight: 400; }
+.dest-selected { margin: 8px 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); }
+.dest-list { list-style: none; margin: 10px 0 14px; padding: 0; display: grid; gap: 8px; }
+.dest-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.dest-item.chosen { border: 2px solid var(--primary); background: var(--accent-soft); }
+.dest-main { display: flex; align-items: center; gap: 10px; }
+.dest-text { flex: 1; display: grid; gap: 3px; min-width: 0; }
+.dest-text small { color: var(--muted); font-size: 12px; }
+.dest-text .badge { justify-self: start; margin-left: 0; }
+.dest-vote { position: relative; display: flex; align-items: center; gap: 6px; }
+.dest-vote button { margin: 0; }
+.dest-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding-left: 34px; }
+.dest-actions button { margin: 0; }
+.dest-search { margin: 8px 0; }
+@media (max-width: 480px) {
+  .dest-main { flex-wrap: wrap; }
+  .dest-vote { width: 100%; justify-content: flex-end; }
+  .dest-actions { padding-left: 0; }
+  .dest-method select { min-width: 0; width: 100%; }
+}

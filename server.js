@@ -37,6 +37,9 @@ const naverLocal = createNaverLocalClient();
 const tourApi = createTourApiClient();
 const { registerAccommodation, verifyAccommodation } = require('./services/accommodation');
 const { registerLodging } = require('./services/lodging');
+const { createRegionTools, registerDestinations, DRAW_LIMITS, METHODS: DESTINATION_METHODS } = require('./services/destinations');
+const { REGION_COORDS } = require('./data/travelGeo');
+const regionTools = createRegionTools({ regions, regionCoords: REGION_COORDS, isKoreanCoordinate: reachability.isKoreanCoordinate });
 
 const app = express();
 app.disable('x-powered-by');
@@ -257,7 +260,9 @@ function roomVersion(roomId) {
     db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId),
     db.prepare(`SELECT user_id, role, active, availability_json, dresscode, preferences_json, custom_preference,
       origin_id, origin_mode, origin_lat, origin_lng, origin_label FROM room_members WHERE room_id = ? ORDER BY user_id`).all(roomId),
-    db.prepare('SELECT id, title, participant_ids, status, notes FROM journeys WHERE room_id = ? ORDER BY id').all(roomId),
+    db.prepare('SELECT id, title, participant_ids, status, notes, destination_method, draw_count FROM journeys WHERE room_id = ? ORDER BY id').all(roomId),
+    db.prepare('SELECT count(*) AS c, sum(deleted) AS d, max(id) AS m FROM destination_candidates WHERE room_id = ?').get(roomId),
+    db.prepare(`SELECT group_concat(trip_id || ':' || user_id || ':' || region_key) AS v FROM destination_votes WHERE trip_id IN (${trips})`).get(roomId),
     ...['trip_payments', 'trip_expenses', 'trip_refunds'].map(table => db.prepare(`SELECT count(*) AS c, max(id) AS m, sum(voided) AS v FROM ${table} WHERE room_id = ?`).get(roomId)),
     db.prepare('SELECT count(*) AS c, max(id) AS m FROM dues_nudges WHERE room_id = ?').get(roomId),
     db.prepare('SELECT count(*) AS c, sum(deleted) AS d, max(id) AS m FROM lodging_candidates WHERE room_id = ?').get(roomId),
@@ -320,8 +325,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   }
   bestDates.sort();
 
-  const selectedRegion = room.selected_region_id ? regions.find(r => r.id === room.selected_region_id) : null;
-  const activeTrip = room.active_trip_id ? db.prepare('SELECT id, title FROM journeys WHERE id = ? AND room_id = ?').get(room.active_trip_id, room.id) : null;
+  const selectedRegion = regionTools.resolve(room.selected_region_id, room.selected_region_json);
+  const activeTrip = room.active_trip_id ? db.prepare('SELECT id, title, destination_method, draw_limit, draw_count FROM journeys WHERE id = ? AND room_id = ?').get(room.active_trip_id, room.id) : null;
 
   res.json({
     room: {
@@ -331,7 +336,10 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       hostUserId: room.host_user_id,
       treasurerUserId: room.treasurer_user_id,
       activeTripId: room.active_trip_id,
-      trip: activeTrip ? { id: activeTrip.id, title: activeTrip.title } : null,
+      trip: activeTrip ? {
+        id: activeTrip.id, title: activeTrip.title, destinationMethod: activeTrip.destination_method,
+        drawLimit: activeTrip.draw_limit, drawCount: activeTrip.draw_count, drawsLeft: Math.max(0, 1 + activeTrip.draw_limit - activeTrip.draw_count),
+      } : null,
       membershipLocked: Boolean(room.membership_locked),
       tripParticipantIds: roster || [],
       status: room.status,
@@ -361,6 +369,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label })),
     originOptions: reachability.ORIGINS.map(({ id, group, label }) => ({ id, group, label })),
     originModes: reachability.MODES,
+    destinationMethods: DESTINATION_METHODS,
+    drawLimits: DRAW_LIMITS,
     kakaoMapKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
   });
 });
@@ -493,7 +503,7 @@ app.get('/api/rooms/:id/past-trips', auth, (req, res) => {
       startDate: plan.selected_date || null,
       endDate: plan.selected_date ? addDaysToDate(plan.selected_date, plan.trip_nights ?? 1) : null,
       nights: plan.trip_nights ?? 1,
-      region: regions.find(region => region.id === plan.selected_region_id)?.name || null,
+      region: regionTools.resolve(plan.selected_region_id, plan.selected_region_json)?.name || null,
       dresscode: plan.selected_dresscode || null,
       accommodation: plan.accommodation_name ? { name: plan.accommodation_name, url: plan.accommodation_url || null } : null,
       participants: JSON.parse(trip.participant_ids).map(id => nickname.get(id)?.nickname || '탈퇴한 멤버'),
@@ -584,18 +594,24 @@ function drawDresscode(room) {
   return concepts.length ? concepts[Math.floor(Math.random() * concepts.length)] : null;
 }
 
+// 여행지 확정 (내장 여행지 또는 검색으로 고른 지역). 검색 지역은 이름·좌표를 함께 저장
 function decideRegion(room, region) {
+  const normalized = regionTools.normalize(region);
+  if (!normalized) throw Object.assign(new Error('존재하지 않는 여행지입니다.'), { status: 400 });
   const finalDresscode = drawDresscode(room);
-  db.prepare('UPDATE rooms SET selected_region_id = ?, selected_dresscode = ?, status = ? WHERE id = ?')
-    .run(region.id, finalDresscode, 'decided', room.id);
-  return { region, dresscode: finalDresscode };
+  db.prepare('UPDATE rooms SET selected_region_id = ?, selected_region_json = ?, selected_dresscode = ?, status = ? WHERE id = ?')
+    .run(normalized.id, normalized.builtin ? null : JSON.stringify(normalized), finalDresscode, 'decided', room.id);
+  return { region: { id: normalized.id, name: normalized.name }, dresscode: finalDresscode };
 }
 
+// 완전 랜덤 추첨 (다시 뽑기 횟수 제한은 여행지 정하기 모듈과 같은 규칙)
 app.post('/api/rooms/:id/draw', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
-  res.json(decideRegion(room, regions[Math.floor(Math.random() * regions.length)]));
+  const claimed = db.prepare('UPDATE journeys SET draw_count = draw_count + 1 WHERE id = ? AND draw_count < 1 + draw_limit').run(room.active_trip_id);
+  if (!claimed.changes) return res.status(409).json({ error: '뽑기를 모두 썼어요.' });
+  res.json(decideRegion(room, regions[require('crypto').randomInt(regions.length)]));
 });
 
 app.post('/api/rooms/:id/dresscode-settings', auth, (req, res) => {
@@ -626,15 +642,17 @@ app.post('/api/rooms/:id/choose-region', auth, (req, res) => {
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 여행지를 정할 수 있습니다.' });
   const region = regions.find(item => item.id === String(req.body?.regionId || ''));
   if (!region) return res.status(400).json({ error: '존재하지 않는 여행지입니다.' });
-  res.json(decideRegion(room, region));
+  res.json(decideRegion(room, { id: region.id }));
 });
+
+registerDestinations(app, { db, auth, isMember, tripRoster, regions, reachability, kakaoLocal, decideRegion, tools: regionTools });
 
 app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
-  const region = room.selected_region_id ? regions.find(item => item.id === room.selected_region_id) : null;
+  const region = regionTools.resolve(room.selected_region_id, room.selected_region_json);
   if (!region) return res.status(409).json({ error: '여행지를 먼저 추첨해주세요.' });
 
   if (!room.active_trip_id) return res.status(409).json({ error: '지난 여행 코스는 여행 기록에서 확인해주세요.' });
