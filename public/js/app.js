@@ -247,6 +247,9 @@ async function renderRoomDetail() {
   const originOptions = data.originOptions || [];
   const originModes = data.originModes || {};
   const originLabel = id => originOptions.find(option => option.id === id)?.label;
+  const tripMembers = room.tripParticipantIds?.length ? members.filter(m => room.tripParticipantIds.includes(m.id)) : members;
+  const votersByDate = {};
+  for (const m of tripMembers) for (const date of m.availability) (votersByDate[date] ||= []).push(m.nickname);
   const me = members.find(m => m.id === state.user.id);
   const planningSectionsOpen = 'open';
   localSelectedDates = new Set(me ? me.availability : []);
@@ -316,6 +319,10 @@ async function renderRoomDetail() {
         </div>
         <span id="originStatus" role="status"></span>
       </form>
+      <h3 class="origin-list-title">멤버별 출발지</h3>
+      <ul class="origin-list">
+        ${tripMembers.map(m => `<li class="${m.originId ? '' : 'missing'}"><strong>${escapeHtml(m.nickname)}</strong><span>${m.originId ? `${escapeHtml(originLabel(m.originId) || '')} · ${escapeHtml(originModes[m.originMode] || '')}` : '미입력'}</span></li>`).join('')}
+      </ul>
       <div id="easyRegions"></div>
       </div>
     </details>
@@ -385,13 +392,19 @@ async function renderRoomDetail() {
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>📅 가능한 날짜 표시하기</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 굵은 테두리는 가장 많은 인원이 가능한 날짜예요.</p>
+      <p class="desc">여행 갈 수 있는 날짜를 눌러서 표시해주세요. 날짜 아래 인원수를 누르면 누가 가능한지 볼 수 있어요.</p>
       <div class="month-nav">
         <button class="ghost small" id="prevMonth">◀</button>
         <span id="monthLabel"></span>
         <button class="ghost small" id="nextMonth">▶</button>
       </div>
       <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="calendar-legend" aria-hidden="true">
+        <span><i class="legend-mine"></i>내가 가능한 날</span>
+        <span><b class="legend-best">유력!</b>가장 많이 가능한 날</span>
+        <span><i class="legend-final"></i>확정 일정</span>
+      </div>
+      <p id="dateVoters" class="date-voters" role="status" hidden></p>
       <button class="block" id="saveAvailBtn">내 가능 날짜 저장</button>
       ${bestDates.length ? `<p class="desc" style="margin-top:12px">🔥 최다 인원(${data.bestCount}명) 가능일: <strong>${bestDates.join(', ')}</strong></p>` : ''}
       ${isHost ? `
@@ -411,11 +424,19 @@ async function renderRoomDetail() {
     </details>
 
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>👗 드레스 코드 입력하기</h2></summary>
+      <summary><h2>👗 드레스 코드${room.dresscodeEnabled ? '' : ' · 사용 안 함'}</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">원하는 드레스 코드를 자유롭게 적어주세요. (예: 하와이안 셔츠, 전신 블랙 등)</p>
-      <input type="text" id="dresscodeInput" placeholder="원하는 드레스 코드" maxlength="40" value="${escapeHtml(me?.dresscode || '')}" />
-      <button class="block secondary" id="saveDresscodeBtn">저장</button>
+      ${isHost ? `<label class="dresscode-toggle"><input type="checkbox" id="dresscodeToggle" ${room.dresscodeEnabled ? 'checked' : ''} /><span>이번 여행에 드레스코드 뽑기 사용</span></label>` : ''}
+      ${room.dresscodeEnabled ? `
+        <p class="desc">원하는 드레스코드 컨셉을 적어주세요. 모두가 적은 컨셉 중에서 하나를 랜덤으로 뽑아요. (예: 하와이안 셔츠, 전신 블랙)</p>
+        <input type="text" id="dresscodeInput" placeholder="원하는 컨셉" maxlength="40" value="${escapeHtml(me?.dresscode || '')}" />
+        <button class="block secondary" id="saveDresscodeBtn">컨셉 저장</button>
+        <ul class="dresscode-concepts">
+          ${tripMembers.map(m => `<li><strong>${escapeHtml(m.nickname)}</strong>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span class="muted">미입력</span>'}</li>`).join('')}
+        </ul>
+        ${room.selectedDresscode ? `<p class="dresscode-final">🎉 뽑힌 드레스코드: ${escapeHtml(room.selectedDresscode)}</p>` : ''}
+        ${isHost && room.activeTripId ? `<button class="block" id="drawDresscodeBtn">${room.selectedDresscode ? '드레스코드 다시 뽑기' : '드레스코드 뽑기'}</button>` : ''}
+      ` : `<p class="desc">${isHost ? '켜면 멤버들이 원하는 컨셉을 입력하고, 그중 하나를 랜덤으로 뽑을 수 있어요.' : '이번 여행은 드레스코드를 정하지 않아요.'}</p>`}
       </div>
     </details>
 
@@ -431,7 +452,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">미입력</span>'} · 취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.originId ? `${escapeHtml(originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
+            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.originId ? `${escapeHtml(originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
@@ -442,9 +463,9 @@ async function renderRoomDetail() {
 
     ${isHost && room.activeTripId ? `
       <details class="card collapsible-card" ${planningSectionsOpen}>
-        <summary><h2>🎲 여행지 & 드레스코드 추첨</h2></summary>
+        <summary><h2>🎲 여행지${room.dresscodeEnabled ? ' & 드레스코드' : ''} 추첨</h2></summary>
         <div class="collapsible-card-content">
-        <p class="desc">모든 인원이 다 모였다면, 지금 랜덤으로 여행지와 드레스코드를 뽑아보세요!</p>
+        <p class="desc">모든 인원이 다 모였다면, 지금 랜덤으로 여행지${room.dresscodeEnabled ? '와 드레스코드' : ''}를 뽑아보세요!</p>
         <button class="block" id="drawBtn">${room.status === 'decided' ? '다시 추첨하기' : '추첨하기'}</button>
         </div>
       </details>
@@ -482,9 +503,10 @@ async function renderRoomDetail() {
     };
   }
 
-  renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate);
-  el('#prevMonth').onclick = () => { shiftMonth(-1); renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate); };
-  el('#nextMonth').onclick = () => { shiftMonth(1); renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate); };
+  const drawCalendar = () => renderCalendar(tally, bestDates, room.selectedDate, room.selectedEndDate, votersByDate);
+  drawCalendar();
+  el('#prevMonth').onclick = () => { shiftMonth(-1); drawCalendar(); };
+  el('#nextMonth').onclick = () => { shiftMonth(1); drawCalendar(); };
 
   el('#saveAvailBtn').onclick = async () => {
     try {
@@ -493,7 +515,23 @@ async function renderRoomDetail() {
     } catch (e) { alert(e.message); }
   };
 
-  el('#saveDresscodeBtn').onclick = async () => {
+  const dresscodeToggle = el('#dresscodeToggle');
+  if (dresscodeToggle) dresscodeToggle.onchange = async () => {
+    dresscodeToggle.disabled = true;
+    try {
+      await api(`/rooms/${room.id}/dresscode-settings`, { method: 'POST', body: { enabled: dresscodeToggle.checked } });
+      render();
+    } catch (e) { alert(e.message); dresscodeToggle.checked = !dresscodeToggle.checked; dresscodeToggle.disabled = false; }
+  };
+  const drawDresscodeBtn = el('#drawDresscodeBtn');
+  if (drawDresscodeBtn) drawDresscodeBtn.onclick = async () => {
+    drawDresscodeBtn.disabled = true;
+    try {
+      await api(`/rooms/${room.id}/draw-dresscode`, { method: 'POST', body: {} });
+      render();
+    } catch (e) { alert(e.message); drawDresscodeBtn.disabled = false; }
+  };
+  if (el('#saveDresscodeBtn')) el('#saveDresscodeBtn').onclick = async () => {
     const text = el('#dresscodeInput').value.trim();
     try {
       await api(`/rooms/${room.id}/dresscode`, { method: 'POST', body: { text } });
@@ -573,7 +611,7 @@ async function renderRoomDetail() {
     };
     const drawBtn = el('#drawBtn');
     if (drawBtn) drawBtn.onclick = async () => {
-      if (!await confirmAction('여행지와 드레스코드를 랜덤으로 추첨할까요?')) return;
+      if (!await confirmAction(room.dresscodeEnabled ? '여행지와 드레스코드를 랜덤으로 추첨할까요?' : '여행지를 랜덤으로 추첨할까요?')) return;
       try {
         await api(`/rooms/${room.id}/draw`, { method: 'POST' });
         roomTabState.delete(room.id);
@@ -836,7 +874,7 @@ function shiftMonth(delta) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
-function renderCalendar(tally, bestDates, selectedDate, selectedEndDate) {
+function renderCalendar(tally, bestDates, selectedDate, selectedEndDate, votersByDate = {}) {
   const { year, month } = calendarCursor;
   const monthNames = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
   el('#monthLabel').textContent = `${year}년 ${monthNames[month]}`;
@@ -857,15 +895,23 @@ function renderCalendar(tally, bestDates, selectedDate, selectedEndDate) {
     const cell = document.createElement('div');
     cell.className = 'day-cell';
     const count = tally[dateStr] || 0;
+    const isBest = bestDates.includes(dateStr) && count > 0;
     if (localSelectedDates.has(dateStr)) cell.classList.add('selected');
-    if (bestDates.includes(dateStr) && count > 0) cell.classList.add('best');
     if (selectedDate && selectedEndDate && dateStr >= selectedDate && dateStr <= selectedEndDate) cell.classList.add('trip-range');
     if (selectedDate === dateStr) cell.classList.add('final');
-    cell.innerHTML = `<span>${d}</span>${count ? `<span class="count">${count}명</span>` : ''}`;
+    // 확정 가능성이 가장 높은 날은 색 대신 숫자 위 '유력!' 글씨로 표시
+    cell.innerHTML = `${isBest ? '<span class="best-label">유력!</span>' : ''}<span>${d}</span>${count ? `<button type="button" class="count" aria-label="${month + 1}월 ${d}일 가능한 사람 보기">${count}명</button>` : ''}`;
     cell.onclick = () => {
       if (localSelectedDates.has(dateStr)) localSelectedDates.delete(dateStr);
       else localSelectedDates.add(dateStr);
       cell.classList.toggle('selected');
+    };
+    const countButton = cell.querySelector('.count');
+    if (countButton) countButton.onclick = event => {
+      event.stopPropagation();
+      const box = el('#dateVoters');
+      box.hidden = false;
+      box.innerHTML = `<strong>${month + 1}월 ${d}일 가능 (${count}명)</strong> ${(votersByDate[dateStr] || []).map(escapeHtml).join(', ')}`;
     };
     grid.appendChild(cell);
   }

@@ -15,6 +15,15 @@ module.exports = function migrate(db) {
     add('trip_refunds', 'trip_id', 'INTEGER');
     add('room_members', 'origin_id', 'TEXT');
     add('room_members', 'origin_mode', 'TEXT');
+    if (!db.prepare('PRAGMA table_info(rooms)').all().some(column => column.name === 'dresscode_enabled')) {
+      add('rooms', 'dresscode_enabled', 'INTEGER NOT NULL DEFAULT 0');
+      // 이미 드레스코드를 쓰던 방은 켜진 상태로 유지
+      const has = (table, name) => db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === name);
+      if (has('rooms', 'selected_dresscode') && has('room_members', 'dresscode')) {
+        db.exec(`UPDATE rooms SET dresscode_enabled = 1 WHERE selected_dresscode IS NOT NULL
+          OR EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = rooms.id AND m.active = 1 AND m.dresscode IS NOT NULL AND m.dresscode != '')`);
+      }
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_versions (name TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS journeys (

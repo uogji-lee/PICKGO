@@ -230,7 +230,7 @@ function tripRoster(room) {
   const trip = room.active_trip_id && db.prepare('SELECT participant_ids FROM journeys WHERE id=? AND room_id=?').get(room.active_trip_id, room.id);
   return trip ? JSON.parse(trip.participant_ids) : null;
 }
-app.post(['/api/rooms/:id/draw', '/api/rooms/:id/choose-region', '/api/rooms/:id/select-date', '/api/rooms/:id/trip-settings'], auth, (req, res, next) => {
+app.post(['/api/rooms/:id/draw', '/api/rooms/:id/choose-region', '/api/rooms/:id/draw-dresscode', '/api/rooms/:id/dresscode-settings', '/api/rooms/:id/select-date', '/api/rooms/:id/trip-settings'], auth, (req, res, next) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (!room.active_trip_id) return res.status(409).json({ error: '방에서 새 여행을 먼저 만들어주세요.' });
@@ -302,7 +302,8 @@ app.get('/api/rooms/:id', auth, (req, res) => {
         mapY: room.accommodation_map_y || null,
       } : null,
       selectedRegion,
-      selectedDresscode: room.selected_dresscode
+      selectedDresscode: room.selected_dresscode,
+      dresscodeEnabled: Boolean(room.dresscode_enabled),
     },
     members,
     tally,
@@ -472,15 +473,18 @@ app.post('/api/rooms/:id/select-date', auth, (req, res) => {
   res.json({ ok: true, selectedDate: date, selectedEndDate: addDaysToDate(date, nights), tripNights: nights });
 });
 
-function decideRegion(room, region) {
+// 드레스코드를 켠 여행이면 참석자들이 입력한 컨셉 중 하나를 랜덤으로 선택
+function drawDresscode(room) {
+  if (!room.dresscode_enabled) return null;
   const roster = tripRoster(room);
-  const members = db.prepare('SELECT user_id, dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id)
-    .filter(member => !roster || roster.includes(member.user_id));
-  const dresscodes = members.map(m => m.dresscode).filter(Boolean);
-  const finalDresscode = dresscodes.length
-    ? dresscodes[Math.floor(Math.random() * dresscodes.length)]
-    : null;
+  const concepts = db.prepare('SELECT user_id, dresscode FROM room_members WHERE room_id = ? AND active = 1').all(room.id)
+    .filter(member => !roster || roster.includes(member.user_id))
+    .map(member => member.dresscode).filter(Boolean);
+  return concepts.length ? concepts[Math.floor(Math.random() * concepts.length)] : null;
+}
 
+function decideRegion(room, region) {
+  const finalDresscode = drawDresscode(room);
   db.prepare('UPDATE rooms SET selected_region_id = ?, selected_dresscode = ?, status = ? WHERE id = ?')
     .run(region.id, finalDresscode, 'decided', room.id);
   return { region, dresscode: finalDresscode };
@@ -491,6 +495,27 @@ app.post('/api/rooms/:id/draw', auth, (req, res) => {
   if (!room) return;
   if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 추첨할 수 있습니다.' });
   res.json(decideRegion(room, regions[Math.floor(Math.random() * regions.length)]));
+});
+
+app.post('/api/rooms/:id/dresscode-settings', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 드레스코드 사용 여부를 바꿀 수 있습니다.' });
+  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'enabled 값이 필요합니다.' });
+  db.prepare('UPDATE rooms SET dresscode_enabled = ?, selected_dresscode = CASE WHEN ? THEN selected_dresscode ELSE NULL END WHERE id = ?')
+    .run(req.body.enabled ? 1 : 0, req.body.enabled ? 1 : 0, room.id);
+  res.json({ ok: true, enabled: req.body.enabled });
+});
+
+app.post('/api/rooms/:id/draw-dresscode', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (room.host_user_id !== req.user.id) return res.status(403).json({ error: '방장만 드레스코드를 뽑을 수 있습니다.' });
+  if (!room.dresscode_enabled) return res.status(409).json({ error: '먼저 드레스코드 뽑기를 켜주세요.' });
+  const dresscode = drawDresscode(room);
+  if (!dresscode) return res.status(409).json({ error: '아직 입력된 드레스코드 컨셉이 없어요.' });
+  db.prepare('UPDATE rooms SET selected_dresscode = ? WHERE id = ?').run(dresscode, room.id);
+  res.json({ dresscode });
 });
 
 // 가기 쉬운 지역 순위 등에서 방장이 직접 여행지를 고르는 경우 (드레스코드는 추첨과 동일하게 랜덤)

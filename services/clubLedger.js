@@ -3,7 +3,7 @@ const koreanMonth = (date = new Date()) => new Date(date.getTime() + 9 * 3600000
 function planSnapshot(room) {
   return Object.fromEntries(['selected_date', 'trip_nights', 'traveler_count', 'transport_mode', 'vehicle_count',
     'accommodation_name', 'accommodation_address', 'accommodation_map_x', 'accommodation_map_y',
-    'selected_region_id', 'selected_dresscode', 'status'].map(key => [key, room[key]]));
+    'selected_region_id', 'selected_dresscode', 'dresscode_enabled', 'status'].map(key => [key, room[key]]));
 }
 function registerClubLedger(db, { route, access, activeMember, members, fail }) {
   const records = (table, roomId, all = false) => db.prepare(`SELECT * FROM ${table} WHERE room_id = ? ${all ? '' : 'AND voided = 0'} ORDER BY id DESC`).all(roomId);
@@ -94,18 +94,19 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
   route('post', 'trips', req => {
     const { room } = access(req, 'planner');
     if (room.active_trip_id) fail('진행 중인 여행을 먼저 종료해주세요.');
-    const { title, participantIds, date, nights = 1 } = req.body;
+    const { title, participantIds, date = null, nights = 1 } = req.body;
     if (typeof title !== 'string' || !title.trim() || title.length > 60) fail('여행 이름을 1~60자로 입력해주세요.');
     participants(room.id, participantIds);
-    if (!validDate(date) || !Number.isInteger(nights) || nights < 0 || nights > 7) fail('여행 날짜와 기간을 확인해주세요.');
-    const plan = { ...planSnapshot(room), selected_date: date, trip_nights: nights, traveler_count: participantIds.length,
-      selected_region_id: null, selected_dresscode: null, status: 'planning', accommodation_name: null,
+    // 출발일은 멤버들이 가능한 날짜를 투표한 뒤 '일정 확정'에서 정하므로 생성 시에는 선택 사항
+    if ((date !== null && date !== '' && !validDate(date)) || !Number.isInteger(nights) || nights < 0 || nights > 7) fail('여행 날짜와 기간을 확인해주세요.');
+    const plan = { ...planSnapshot(room), selected_date: date || null, trip_nights: nights, traveler_count: participantIds.length,
+      selected_region_id: null, selected_dresscode: null, dresscode_enabled: 0, status: 'planning', accommodation_name: null,
       accommodation_address: null, accommodation_map_x: null, accommodation_map_y: null };
     const trip = db.prepare('INSERT INTO journeys(room_id,title,participant_ids,plan_json,created_by) VALUES (?,?,?,?,?)')
       .run(room.id, title.trim(), JSON.stringify(participantIds), JSON.stringify(plan), req.user.id);
     db.prepare(`UPDATE rooms SET active_trip_id = ?, selected_date = ?, trip_nights = ?, traveler_count = ?, status = 'planning',
-      selected_region_id = NULL, selected_dresscode = NULL, accommodation_name = NULL, accommodation_address = NULL,
-      accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?`).run(trip.lastInsertRowid, date, nights, participantIds.length, room.id);
+      selected_region_id = NULL, selected_dresscode = NULL, dresscode_enabled = 0, accommodation_name = NULL, accommodation_address = NULL,
+      accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?`).run(trip.lastInsertRowid, date || null, nights, participantIds.length, room.id);
     return { ok: true, tripId: trip.lastInsertRowid };
   });
   route('post', 'trips/:tripId/participants', req => {
