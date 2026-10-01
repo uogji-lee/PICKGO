@@ -7,7 +7,7 @@ async function loadPacking(room) {
     const ledger = await api(`/rooms/${room.id}/finance`);
     if (!root.isConnected) return;
     const tripId = packingTrips.get(room.id) || room.activeTripId || ledger.trips[0]?.id;
-    if (!tripId) { root.innerHTML = '<p class="desc">여행·코스 탭에서 여행을 만들면 준비물을 관리할 수 있어요.</p>'; return; }
+    if (!tripId) { root.innerHTML = '<p class="desc">여행 › 장소 탭에서 여행을 만들면 준비물을 관리할 수 있어요.</p>'; return; }
     const data = await api(`/rooms/${room.id}/trips/${tripId}/packing`);
     if (!root.isConnected) return;
     const filter = packingFilters.get(tripId) || 'all';

@@ -358,6 +358,7 @@ async function renderRoomDetail() {
   for (const m of tripMembers) for (const date of m.availability) (votersByDate[date] ||= []).push(m.nickname);
   const me = members.find(m => m.id === state.user.id);
   const planningSectionsOpen = 'open';
+  const destinationDecided = Boolean(room.activeTripId && room.status === 'decided');
   localSelectedDates = new Set(me ? me.availability : []);
 
   if (!calendarCursor) {
@@ -384,15 +385,17 @@ async function renderRoomDetail() {
       ${[['trip', '🧳 여행'], ['members', '👥 멤버 관리'], ['dues', '💰 회비'], ['history', '📚 지난 여행']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-top="${key}" ${key === 'trip' ? 'aria-controls="tripSubnav"' : `aria-controls="panel-${key}"`} aria-selected="false" tabindex="-1">${label}</button>`).join('')}
     </nav>
     <div id="tripSubnav" class="trip-subnav" hidden>
-      <p class="trip-subnav-title">${room.trip ? `<strong>${escapeHtml(room.trip.title)}</strong><span class="badge">진행 중</span>` : '<strong>진행 중인 여행이 없어요</strong><span class="desc">준비 탭에서 새 여행을 만들어 보세요.</span>'}</p>
+      <p class="trip-subnav-title">${room.trip ? `<strong>${escapeHtml(room.trip.title)}</strong><span class="badge">진행 중</span>` : '<strong>진행 중인 여행이 없어요</strong><span class="desc">장소 탭에서 새 여행을 만들어 보세요.</span>'}</p>
       <nav class="room-subtabs" role="tablist" aria-label="이번 여행 메뉴">
-        ${[['conditions', '준비'], ['course', '코스'], ['settle', '정산'], ['packing', '준비물']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+        ${[['place', '장소'], ['conditions', '준비'], ['course', '코스'], ['settle', '정산'], ['packing', '준비물']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
       </nav>
     </div>
     <p id="roomActionStatus" role="status" aria-live="polite"></p>
     <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
-    ${room.activeTripId && room.status === 'decided' ? renderResultCard(room) : ''}
-    <div class="card"><p class="desc">준비 탭에서 일정·여행지·숙소·취향을 정하면 여기에서 코스를 확인할 수 있어요.</p><button class="secondary" data-go-tab="conditions">준비로 가기</button></div>
+    ${destinationDecided ? renderResultCard(room) : ''}
+    <div class="card">${destinationDecided
+      ? '<p class="desc">준비 탭에서 숙소·교통·취향을 정하면 코스에 반영돼요.</p><button class="secondary" data-go-tab="conditions">준비로 가기</button>'
+      : '<p class="desc">장소 탭에서 일정·출발지·여행지를 정하면 여기에서 코스를 확인할 수 있어요.</p><button class="secondary" data-go-tab="place">장소로 가기</button>'}</div>
     </section>
 
     <section id="panel-settle" role="tabpanel" aria-labelledby="tab-settle" tabindex="0" hidden>
@@ -406,7 +409,7 @@ async function renderRoomDetail() {
     </section>
 
     <section id="panel-packing" role="tabpanel" aria-labelledby="tab-packing" tabindex="0" hidden><div class="card"><h2>여행 준비물</h2><div id="packingContent">준비물 불러오는 중…</div></div></section>
-    <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
+    <section id="panel-place" role="tabpanel" aria-labelledby="tab-place" tabindex="0" hidden>
     <div class="card"><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
@@ -498,7 +501,12 @@ async function renderRoomDetail() {
       <div id="easyRegions" hidden></div>
       </div>
     </details>
+    </div>
+    </section>
 
+    <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
+    ${destinationDecided ? '' : `<div class="card"><p class="desc">${room.activeTripId ? '아직 여행지를 정하지 않았어요. 장소 탭에서 여행지를 정한 뒤 숙소·교통·취향을 준비하면 좋아요.' : '여행을 만들고 여행지를 정하면 숙소·교통·취향을 준비해요.'}</p><button class="secondary" data-go-tab="place">장소로 가기</button></div>`}
+    <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🏠 숙소 후보 · 투표</h2></summary>
       <div class="collapsible-card-content">
@@ -510,7 +518,7 @@ async function renderRoomDetail() {
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🚗 교통 조건</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">인원과 이동수단을 기준으로 하루 이동 범위와 방문 순서를 조정해요. 숙소는 아래 숙소 후보 투표에서 정해요.</p>
+      <p class="desc">인원과 이동수단을 기준으로 하루 이동 범위와 방문 순서를 조정해요. 숙소는 위 숙소 후보 투표에서 정해요.</p>
       ${isHost ? `
         <div class="trip-settings-grid">
           <label>

@@ -136,7 +136,7 @@ async function loadRoomFinance(room, members) {
       const update = () => { const person = people.find(person => person.id === Number(payer.value)); el('#payerExisting', container).textContent = `기존 납부 ${won(person.paid)} + 이번 ${won(Number(paymentAmount.value))} = 누적 ${won(person.paid + Number(paymentAmount.value))}`; };
       payer.onchange = update; paymentAmount.oninput = update; update();
     }
-    // 한 번에 그린 장부를 탭별로 나눠 배치: 여행›준비(참석), 여행›정산(지출·종료), 멤버 관리(총무·확정), 지난 여행(정산 기록)
+    // 한 번에 그린 장부를 탭별로 나눠 배치: 여행›장소(참석), 여행›정산(지출·종료), 멤버 관리(총무·확정), 지난 여행(정산 기록)
     const place = (targetId, node) => { const target = el(`#${targetId}`); if (target && node) target.replaceChildren(node); };
     place('tripManagement', container.querySelector('[data-journey-controls]'));
     place('settleExpenses', container.querySelector('[data-finance-pane="expenses"]'));
