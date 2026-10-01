@@ -254,7 +254,7 @@ let calendarCursor = null; // {year, month} 0-indexed month
 let localSelectedDates = new Set();
 
 // 같은 방을 다시 그릴 때(저장 버튼 등) 화면을 비우지 않고, 스크롤 위치와 카드 접힘 상태를 이어서 보여줌
-const LIVE_SECTIONS = ['tripManagement', 'roomFinance', 'expenseOverview', 'packingContent', 'lodgingPanel', 'easyRegions', 'kakaoSocialPanel', 'pastTrips'];
+const LIVE_SECTIONS = ['tripManagement', 'roomFinance', 'expenseOverview', 'settleExpenses', 'settleFinish', 'memberAdmin', 'tripRecords', 'packingContent', 'lodgingPanel', 'easyRegions', 'kakaoSocialPanel', 'pastTrips'];
 function captureRoomView() {
   if (state.renderedRoomId !== state.roomId || !appEl().querySelector('.room-tabs')) return null;
   return {
@@ -323,25 +323,33 @@ async function renderRoomDetail() {
     </div>
 
     <nav class="room-tabs" role="tablist" aria-label="방 메뉴">
-      ${[['conditions', '여행 준비'], ['course', '여행 코스'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버'], ['history', '지난 여행']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+      ${[['trip', '🧳 여행'], ['members', '👥 멤버 관리'], ['dues', '💰 회비'], ['history', '📚 지난 여행']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-top="${key}" ${key === 'trip' ? 'aria-controls="tripSubnav"' : `aria-controls="panel-${key}"`} aria-selected="false" tabindex="-1">${label}</button>`).join('')}
     </nav>
+    <div id="tripSubnav" class="trip-subnav" hidden>
+      <p class="trip-subnav-title">${room.trip ? `<strong>${escapeHtml(room.trip.title)}</strong><span class="badge">진행 중</span>` : '<strong>진행 중인 여행이 없어요</strong><span class="desc">준비 탭에서 새 여행을 만들어 보세요.</span>'}</p>
+      <nav class="room-subtabs" role="tablist" aria-label="이번 여행 메뉴">
+        ${[['conditions', '준비'], ['course', '코스'], ['settle', '정산'], ['packing', '준비물']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+      </nav>
+    </div>
     <p id="roomActionStatus" role="status" aria-live="polite"></p>
     <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
     ${room.activeTripId && room.status === 'decided' ? renderResultCard(room) : ''}
-    <div class="card"><p class="desc">여행 준비에서 이름·날짜·참석자 → 교통·숙소·취향을 정하면 여기에서 코스를 확인할 수 있어요.</p><button class="secondary" data-go-tab="conditions">여행 준비 · 조건 수정</button></div>
+    <div class="card"><p class="desc">준비 탭에서 일정·여행지·숙소·취향을 정하면 여기에서 코스를 확인할 수 있어요.</p><button class="secondary" data-go-tab="conditions">준비로 가기</button></div>
     </section>
 
-    <section id="panel-finance" role="tabpanel" aria-labelledby="tab-finance" tabindex="0" hidden>
+    <section id="panel-settle" role="tabpanel" aria-labelledby="tab-settle" tabindex="0" hidden>
     <div id="expenseOverview" class="card">여행 경비 불러오는 중…</div>
-    <details class="card collapsible-card" open>
-      <summary><h2>💰 회비 · 지출 · 정산</h2></summary>
-      <div id="roomFinance" class="collapsible-card-content">공동금고 불러오는 중…</div>
-    </details>
+    <div class="card"><div id="settleExpenses">지출 기록 불러오는 중…</div></div>
+    <div class="card" id="settleFinishCard"><div id="settleFinish"></div></div>
+    </section>
+
+    <section id="panel-dues" role="tabpanel" aria-labelledby="tab-dues" tabindex="0" hidden>
+    <div class="card"><div id="roomFinance">공동금고 불러오는 중…</div></div>
     </section>
 
     <section id="panel-packing" role="tabpanel" aria-labelledby="tab-packing" tabindex="0" hidden><div class="card"><h2>여행 준비물</h2><div id="packingContent">준비물 불러오는 중…</div></div></section>
     <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
-    <div class="card"><p class="desc">1. 이름·날짜·참석자 → 2. 교통·숙소·취향 → 3. 추첨·코스 생성</p><div id="tripManagement">여행 정보 불러오는 중…</div></div>
+    <div class="card"><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>📍 출발지 공유</h2></summary>
@@ -510,10 +518,10 @@ async function renderRoomDetail() {
     <div id="drawControls"></div>
     </section>
     <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
-      <div class="card"><h2>🧳 지난 여행</h2><p class="desc">끝난 여행만 모아 보여줘요. 진행 중인 여행은 여행 준비·코스 탭에서 확인하세요.</p><div id="pastTrips">불러오는 중…</div></div>
+      <div class="card"><h2>🧳 지난 여행</h2><p class="desc">끝난 여행만 모아 보여줘요. 진행 중인 여행은 여행 탭에서 확인하세요.</p><div id="pastTrips">불러오는 중…</div></div>
+      <div class="card"><div id="tripRecords">여행 기록 불러오는 중…</div></div>
     </section>
     <section id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" hidden>
-    <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>👥 참여 멤버 (${members.length}명)</h2></summary>
       <div class="collapsible-card-content">
@@ -521,13 +529,15 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.originId ? `${escapeHtml(originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
+            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
       </ul>
+      <div id="memberAdmin"></div>
       </div>
     </details>
+    <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     </section>
 
     ${isHost && room.activeTripId ? `

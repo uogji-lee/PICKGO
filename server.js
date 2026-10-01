@@ -304,6 +304,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   bestDates.sort();
 
   const selectedRegion = room.selected_region_id ? regions.find(r => r.id === room.selected_region_id) : null;
+  const activeTrip = room.active_trip_id ? db.prepare('SELECT id, title FROM journeys WHERE id = ? AND room_id = ?').get(room.active_trip_id, room.id) : null;
 
   res.json({
     room: {
@@ -313,6 +314,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       hostUserId: room.host_user_id,
       treasurerUserId: room.treasurer_user_id,
       activeTripId: room.active_trip_id,
+      trip: activeTrip ? { id: activeTrip.id, title: activeTrip.title } : null,
       membershipLocked: Boolean(room.membership_locked),
       tripParticipantIds: roster || [],
       status: room.status,

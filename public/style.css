@@ -92,14 +92,23 @@ body {
 .packing-list select { width: 100px; margin: 0; padding: 6px; }
 .packing-list .packed { text-decoration: line-through; color: #849186; }
 @media (max-width: 480px) { .expense-summary { gap: 8px; } .expense-summary article { padding: 14px; } .expense-summary article > strong { font-size: 24px; } .packing-list { padding: 6px 10px; } .packing-list select { width: 76px; } }
-.room-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 0 0 20px; padding: 6px; background: #eee9e2; border-radius: 14px; }
+.room-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 20px; padding: 6px; background: #eee9e2; border-radius: 14px; }
 .room-tabs button { margin: 0; padding: 13px 4px; border: 0; border-radius: 10px; background: transparent; color: #635b53; box-shadow: none; font-weight: 600; }
 .room-tabs button[aria-selected="true"] { background: white; color: #b64e30; box-shadow: 0 2px 6px #33221112; }
 .room-tabs button:focus-visible { outline: 3px solid #c96b49; outline-offset: 2px; }
 [role="tabpanel"][hidden] { display: none !important; }
 #roomActionStatus:empty { display: none; }
 #tripManagement { margin-top: 18px; }
-@media (max-width: 480px) { .room-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 4px; } .room-tabs button { padding: 10px 4px; font-size: 13px; } }
+/* 여행 안쪽 메뉴: 진행 중인 여행 이름 + 준비·코스·정산·준비물 */
+.trip-subnav { margin: -12px 0 20px; padding: 12px 14px 10px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 14px 14px; background: var(--card); }
+.trip-subnav-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 10px; }
+.trip-subnav-title .desc { margin: 0; font-size: 13px; }
+.room-subtabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; border-bottom: 1px solid var(--border); }
+.room-subtabs button { margin: 0; padding: 10px 4px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-weight: 600; box-shadow: none; }
+.room-subtabs button:hover { background: transparent; color: var(--text); }
+.room-subtabs button[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--primary-dark); }
+.room-subtabs button:focus-visible { outline: 3px solid #c96b49; outline-offset: -3px; }
+@media (max-width: 480px) { .room-tabs { gap: 2px; padding: 4px; } .room-tabs button { padding: 10px 2px; font-size: 12px; } .trip-subnav { padding: 10px 10px 8px; } }
 .kakao-login-link { display: block; padding: 13px 18px; margin: 12px 0; border-radius: 10px; background: #fee500; color: #191919; text-align: center; text-decoration: none; font-weight: 600; }
 .kakao-login-link[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 .journey-history { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }
