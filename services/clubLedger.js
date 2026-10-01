@@ -2,7 +2,7 @@ const { calculateFinance } = require('./finance');
 const koreanMonth = (date = new Date()) => new Date(date.getTime() + 9 * 3600000).toISOString().slice(0, 7);
 function planSnapshot(room) {
   return Object.fromEntries(['selected_date', 'trip_nights', 'traveler_count', 'transport_mode', 'vehicle_count',
-    'accommodation_name', 'accommodation_address', 'accommodation_map_x', 'accommodation_map_y',
+    'accommodation_name', 'accommodation_address', 'accommodation_url', 'accommodation_map_x', 'accommodation_map_y',
     'selected_region_id', 'selected_dresscode', 'dresscode_enabled', 'status'].map(key => [key, room[key]]));
 }
 function registerClubLedger(db, { route, access, activeMember, members, fail }) {
@@ -101,22 +101,42 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
     if ((date !== null && date !== '' && !validDate(date)) || !Number.isInteger(nights) || nights < 0 || nights > 7) fail('여행 날짜와 기간을 확인해주세요.');
     const plan = { ...planSnapshot(room), selected_date: date || null, trip_nights: nights, traveler_count: participantIds.length,
       selected_region_id: null, selected_dresscode: null, dresscode_enabled: 0, status: 'planning', accommodation_name: null,
-      accommodation_address: null, accommodation_map_x: null, accommodation_map_y: null };
+      accommodation_address: null, accommodation_url: null, accommodation_map_x: null, accommodation_map_y: null };
     const trip = db.prepare('INSERT INTO journeys(room_id,title,participant_ids,plan_json,created_by) VALUES (?,?,?,?,?)')
       .run(room.id, title.trim(), JSON.stringify(participantIds), JSON.stringify(plan), req.user.id);
     db.prepare(`UPDATE rooms SET active_trip_id = ?, selected_date = ?, trip_nights = ?, traveler_count = ?, status = 'planning',
       selected_region_id = NULL, selected_dresscode = NULL, dresscode_enabled = 0, accommodation_name = NULL, accommodation_address = NULL,
-      accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?`).run(trip.lastInsertRowid, date || null, nights, participantIds.length, room.id);
+      accommodation_url = NULL, accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?`).run(trip.lastInsertRowid, date || null, nights, participantIds.length, room.id);
+    // 새 여행은 지난 여행의 가능 날짜·취향·드레스코드 컨셉·출발지를 이어받지 않음 (지난 값은 종료 시 여행 기록에 보관)
+    db.prepare(`UPDATE room_members SET availability_json = '[]', preferences_json = '[]', custom_preference = NULL,
+      dresscode = NULL, origin_id = NULL, origin_mode = NULL WHERE room_id = ?`).run(room.id);
     return { ok: true, tripId: trip.lastInsertRowid };
   });
-  route('post', 'trips/:tripId/participants', req => {
-    const { room } = access(req, 'planner');
-    const trip = tripById(room.id, Number(req.params.tripId));
+  function saveParticipants(room, trip, ids) {
     if (trip.status !== 'planning' || records('trip_expenses', room.id).some(expense => expense.trip_id === trip.id)) fail('지출이 기록된 여행의 참석자는 변경할 수 없습니다.');
-    participants(room.id, req.body.participantIds);
-    db.prepare('UPDATE journeys SET participant_ids = ? WHERE id = ?').run(JSON.stringify(req.body.participantIds), trip.id);
-    db.prepare('UPDATE rooms SET traveler_count = ? WHERE id = ?').run(req.body.participantIds.length, room.id);
+    participants(room.id, ids);
+    db.prepare('UPDATE journeys SET participant_ids = ? WHERE id = ?').run(JSON.stringify(ids), trip.id);
+    db.prepare('UPDATE rooms SET traveler_count = ? WHERE id = ?').run(ids.length, room.id);
+    // 빠진 사람의 숙소 투표는 정리
+    db.prepare(`DELETE FROM lodging_votes WHERE trip_id = ? AND user_id NOT IN (SELECT value FROM json_each(?))`).run(trip.id, JSON.stringify(ids));
+  }
+  // 다른 사람의 참석 여부는 방장만 변경
+  route('post', 'trips/:tripId/participants', req => {
+    const { room, isHost } = access(req);
+    if (!isHost) fail('방장만 다른 멤버의 참석 여부를 바꿀 수 있어요. 본인 참석은 참석/불참 버튼을 눌러주세요.', 403);
+    saveParticipants(room, tripById(room.id, Number(req.params.tripId)), req.body.participantIds);
     return { ok: true };
+  });
+  // 본인 참석 여부는 본인이 직접 변경
+  route('post', 'trips/:tripId/attendance', req => {
+    const { room } = access(req);
+    if (typeof req.body.attending !== 'boolean') fail('참석 여부를 선택해주세요.');
+    const trip = tripById(room.id, Number(req.params.tripId));
+    const ids = JSON.parse(trip.participant_ids).filter(id => id !== req.user.id);
+    if (req.body.attending) ids.push(req.user.id);
+    if (!ids.length) fail('참석자가 최소 1명은 있어야 해요.');
+    saveParticipants(room, trip, ids);
+    return { ok: true, attending: req.body.attending };
   });
   route('post', 'trips/:tripId/record', req => {
     const { room } = access(req, 'host');
@@ -151,8 +171,13 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
         tripShare: costs.people.find(item => item.id === person.id).share,
         tripAdvanced: costs.people.find(item => item.id === person.id).advanced,
       })) };
-    db.prepare("UPDATE journeys SET status = 'completed', plan_json = ?, settlement_json = ?, completed_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify(planSnapshot(room)), JSON.stringify(settlement), trip.id);
+    // 지난 여행의 멤버 입력값(가능 날짜·취향·컨셉·출발지)을 기록으로 보관
+    const memberInputs = db.prepare('SELECT user_id, availability_json, preferences_json, custom_preference, dresscode, origin_id, origin_mode FROM room_members WHERE room_id = ?')
+      .all(room.id).filter(member => ids.includes(member.user_id)).map(member => ({ userId: member.user_id,
+        availability: JSON.parse(member.availability_json || '[]'), preferences: JSON.parse(member.preferences_json || '[]'),
+        customPreference: member.custom_preference, dresscode: member.dresscode, originId: member.origin_id, originMode: member.origin_mode }));
+    db.prepare("UPDATE journeys SET status = 'completed', plan_json = ?, settlement_json = ?, member_inputs_json = ?, completed_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(planSnapshot(room)), JSON.stringify(settlement), JSON.stringify(memberInputs), trip.id);
     db.prepare('UPDATE rooms SET active_trip_id = NULL WHERE id = ?').run(room.id);
     requestDeficits(room, trip.id, `${trip.title} 여행 정산 추가 납부`);
     return { ok: true, settlement };

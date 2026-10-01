@@ -298,7 +298,7 @@ async function renderRoomDetail() {
     </div>
 
     <nav class="room-tabs" role="tablist" aria-label="방 메뉴">
-      ${[['conditions', '여행 준비'], ['course', '여행 코스'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
+      ${[['conditions', '여행 준비'], ['course', '여행 코스'], ['finance', '회비·정산'], ['packing', '준비물'], ['members', '멤버'], ['history', '지난 여행']].map(([key, label]) => `<button type="button" role="tab" id="tab-${key}" data-room-tab="${key}" aria-controls="panel-${key}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}
     </nav>
     <p id="roomActionStatus" role="status" aria-live="polite"></p>
     <section id="panel-course" role="tabpanel" aria-labelledby="tab-course" tabindex="0" hidden>
@@ -351,9 +351,9 @@ async function renderRoomDetail() {
     </details>
 
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>🚗 교통·숙소 조건</h2></summary>
+      <summary><h2>🚗 교통 조건</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">인원과 이동수단, 숙소를 기준으로 하루 이동 범위와 방문 순서를 조정해요. 현재 참여 멤버는 ${members.length}명입니다.</p>
+      <p class="desc">인원과 이동수단을 기준으로 하루 이동 범위와 방문 순서를 조정해요. 숙소는 아래 숙소 후보 투표에서 정해요.</p>
       ${isHost ? `
         <div class="trip-settings-grid">
           <label>
@@ -371,22 +371,21 @@ async function renderRoomDetail() {
             <span>사용 가능한 차량</span>
             <input type="number" id="vehicleCountInput" min="1" max="10" value="${Math.max(room.vehicleCount || 1, 1)}" />
           </label>
-          <label class="trip-settings-wide">
-            <span>숙소명 또는 주소</span>
-            <input type="text" id="accommodationInput" maxlength="80" placeholder="예: 포항 라한호텔 또는 도로명 주소" value="${escapeHtml(room.accommodation?.name || '')}" />
-            <button type="button" class="secondary" id="searchAccommodation">네이버 숙소 검색</button>
-            <span id="accommodationStatus" role="status"></span>
-            <div id="accommodationResults"></div>
-          </label>
         </div>
-        <button class="block secondary" id="saveTripSettingsBtn">교통·숙소 조건 저장</button>
+        <button class="block secondary" id="saveTripSettingsBtn">교통 조건 저장</button>
       ` : `
         <div class="trip-settings-summary">
           <strong>${room.travelerCount}명 · ${room.transportMode === 'car' ? `차량 ${room.vehicleCount}대` : '대중교통·도보'}</strong>
-          <span>${room.accommodation ? `숙소: ${escapeHtml(room.accommodation.name)}` : '숙소 미정'}</span>
         </div>
       `}
-      ${room.accommodation ? `<p class="desc trip-settings-saved">📍 ${escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
+      </div>
+    </details>
+
+    <details class="card collapsible-card" ${planningSectionsOpen}>
+      <summary><h2>🏠 숙소 후보 · 투표</h2></summary>
+      <div class="collapsible-card-content">
+      ${room.accommodation ? `<p class="trip-settings-saved">📍 확정 숙소: ${room.accommodation.url ? `<a href="${escapeHtml(room.accommodation.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(room.accommodation.name)} ↗</a>` : escapeHtml(room.accommodation.name)}${room.accommodation.address ? ` · ${escapeHtml(room.accommodation.address)}` : ''}</p>` : ''}
+      <div id="lodgingPanel">숙소 후보 불러오는 중…</div>
       </div>
     </details>
 
@@ -465,6 +464,9 @@ async function renderRoomDetail() {
 
     </div>
     <div id="drawControls"></div>
+    </section>
+    <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+      <div class="card"><h2>🧳 지난 여행</h2><p class="desc">끝난 여행만 모아 보여줘요. 진행 중인 여행은 여행 준비·코스 탭에서 확인하세요.</p><div id="pastTrips">불러오는 중…</div></div>
     </section>
     <section id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" hidden>
     <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
@@ -563,23 +565,6 @@ async function renderRoomDetail() {
   };
 
   if (isHost) {
-    let accommodationProof = null;
-    let accommodationSearchVersion = 0;
-    el('#accommodationInput').oninput = () => { accommodationProof = null; accommodationSearchVersion++; el('#accommodationResults').innerHTML = ''; el('#accommodationStatus').textContent = '주소를 확인하려면 다시 검색해주세요.'; };
-    el('#searchAccommodation').onclick = async event => {
-      const button = event.target, version = ++accommodationSearchVersion; button.disabled = true;
-      const output = el('#accommodationResults'), notice = el('#accommodationStatus'); notice.textContent = '네이버에서 검색 중…';
-      try {
-        const result = await api(`/rooms/${room.id}/accommodation-search?q=${encodeURIComponent(el('#accommodationInput').value.trim())}`);
-        if (!output.isConnected || version !== accommodationSearchVersion) return;
-        notice.textContent = result.notice; output.replaceChildren();
-        result.places.forEach(place => { const row = document.createElement('div'); row.className = 'accommodation-result';
-          row.innerHTML = `<strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(place.address)}</small><a target="_blank" rel="noopener noreferrer" href="https://map.naver.com/p/search/${encodeURIComponent(place.address + ' ' + place.name)}">네이버 지도 확인 ↗</a><button type="button" class="secondary">이 숙소 선택</button>`;
-          row.querySelector('button').onclick = () => { accommodationProof = place.proof; el('#accommodationInput').value = place.name; notice.textContent = `선택: ${place.address} · 조건 저장을 눌러 확정하세요.`; output.replaceChildren(); };
-          output.append(row);
-        });
-      } catch(error) { notice.textContent = error.message; } finally { button.disabled = false; }
-    };
     const transportModeSelect = el('#transportModeSelect');
     const vehicleCountField = el('#vehicleCountField');
     transportModeSelect.onchange = () => {
@@ -589,11 +574,10 @@ async function renderRoomDetail() {
       const travelerCount = Number(el('#travelerCountInput').value);
       const transportMode = transportModeSelect.value;
       const vehicleCount = transportMode === 'car' ? Number(el('#vehicleCountInput').value) : 0;
-      const accommodationName = el('#accommodationInput').value.trim();
       try {
         const result = await api(`/rooms/${room.id}/trip-settings`, {
           method: 'POST',
-          body: { travelerCount, transportMode, vehicleCount, accommodationName, accommodationProof },
+          body: { travelerCount, transportMode, vehicleCount },
         });
         if (result.notice) alert(result.notice);
         render();
@@ -646,6 +630,8 @@ async function renderRoomDetail() {
   bindMemberManagement(room, members);
   loadRoomFinance(room, members);
   loadPacking(room);
+  loadLodging(room);
+  loadPastTrips(room);
   bindOriginForm(room, isHost);
   if (room.activeTripId) loadEasyRegions(room, isHost);
   loadKakaoPanel(el('#kakaoSocialPanel'), room);

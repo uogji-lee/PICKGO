@@ -36,6 +36,7 @@ const kakaoLocal = createKakaoLocalClient();
 const naverLocal = createNaverLocalClient();
 const tourApi = createTourApiClient();
 const { registerAccommodation, verifyAccommodation } = require('./services/accommodation');
+const { registerLodging } = require('./services/lodging');
 
 const app = express();
 app.disable('x-powered-by');
@@ -321,6 +322,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
       accommodation: room.accommodation_name ? {
         name: room.accommodation_name,
         address: room.accommodation_address || null,
+        url: room.accommodation_url || null,
         mapX: room.accommodation_map_x || null,
         mapY: room.accommodation_map_y || null,
       } : null,
@@ -429,6 +431,36 @@ app.get('/api/rooms/:id/easy-regions', auth, (req, res) => {
 });
 
 registerAccommodation(app, {auth,getRoomOr404,naverLocal,secret:JWT_SECRET});
+registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster });
+
+// 끝난 여행 목록 (진행 중인 여행과 분리해서 표시)
+app.get('/api/rooms/:id/past-trips', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  const nickname = db.prepare('SELECT nickname FROM users WHERE id = ?');
+  const spent = db.prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM trip_expenses WHERE trip_id = ? AND voided = 0');
+  const trips = db.prepare("SELECT * FROM journeys WHERE room_id = ? AND status = 'completed' ORDER BY completed_at DESC, id DESC").all(room.id).map(trip => {
+    const plan = JSON.parse(trip.plan_json || '{}');
+    const itinerary = trip.itinerary_json ? JSON.parse(trip.itinerary_json) : null;
+    return {
+      id: trip.id,
+      title: trip.title,
+      completedAt: trip.completed_at,
+      notes: trip.notes,
+      startDate: plan.selected_date || null,
+      endDate: plan.selected_date ? addDaysToDate(plan.selected_date, plan.trip_nights ?? 1) : null,
+      nights: plan.trip_nights ?? 1,
+      region: regions.find(region => region.id === plan.selected_region_id)?.name || null,
+      dresscode: plan.selected_dresscode || null,
+      accommodation: plan.accommodation_name ? { name: plan.accommodation_name, url: plan.accommodation_url || null } : null,
+      participants: JSON.parse(trip.participant_ids).map(id => nickname.get(id)?.nickname || '탈퇴한 멤버'),
+      spent: spent.get(trip.id).total,
+      course: (itinerary?.days || []).map(day => ({ dayNumber: day.dayNumber, date: day.date, stops: day.stops.map(stop => stop.place?.name).filter(Boolean) })),
+    };
+  });
+  res.json({ trips });
+});
 app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
@@ -448,7 +480,10 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
 
   let accommodation = null;
   let accommodationNotice = null;
-  if (req.body.accommodationProof) {
+  const keepAccommodation = !req.body.accommodationProof && !Object.hasOwn(req.body || {}, 'accommodationName');
+  if (keepAccommodation) {
+    accommodation = room.accommodation_name ? { name: room.accommodation_name, address: room.accommodation_address, mapX: room.accommodation_map_x, mapY: room.accommodation_map_y } : null;
+  } else if (req.body.accommodationProof) {
     try { accommodation = verifyAccommodation(req.body.accommodationProof, room, req.user.id, JWT_SECRET); }
     catch { return res.status(400).json({error:'숙소 검색 결과가 만료되었거나 여행이 변경되었습니다. 다시 검색해주세요.'}); }
   } else if (accommodationName && accommodationName === room.accommodation_name) {
@@ -459,7 +494,7 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
   const updated = db.prepare(`
     UPDATE rooms
     SET traveler_count = ?, transport_mode = ?, vehicle_count = ?,
-        accommodation_name = ?, accommodation_address = ?, accommodation_map_x = ?, accommodation_map_y = ?
+        accommodation_name = ?, accommodation_address = ?, accommodation_url = ?, accommodation_map_x = ?, accommodation_map_y = ?
     WHERE id = ? AND active_trip_id = ? AND host_user_id = ?
   `).run(
     travelerCount,
@@ -467,6 +502,7 @@ app.post('/api/rooms/:id/trip-settings', auth, async (req, res) => {
     vehicleCount,
     accommodation?.name || accommodationName || null,
     accommodation?.address || null,
+    keepAccommodation || (accommodationName && accommodationName === room.accommodation_name) ? room.accommodation_url : null,
     accommodation?.mapX || null,
     accommodation?.mapY || null,
     room.id, room.active_trip_id, req.user.id
@@ -652,7 +688,9 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     vehicleCount: room.vehicle_count ?? 0,
     accommodation,
   });
-  if (room.accommodation_name && !accommodation) {
+  if (room.accommodation_url && !accommodation) {
+    notices.push('링크로 정한 숙소는 위치 좌표가 없어 여행지 중심으로 코스를 구성했어요.');
+  } else if (room.accommodation_name && !accommodation) {
     notices.push('숙소 좌표를 확인하지 못해 현재는 선정 지역 중심으로 코스를 구성했습니다. 여행 조건에서 숙소를 다시 검색해 주세요.');
   } else if (accommodation && !itinerary.days.some(day => day.stops.length)) {
     notices.push(`숙소에서 ${itinerary.planning.maxDistanceFromAccommodationKm}km 안에 추천 장소가 없습니다. 교통수단이나 숙소를 변경해 주세요.`);
