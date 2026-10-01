@@ -9,7 +9,6 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     clientId: process.env.KAKAO_REST_API_KEY, clientSecret: process.env.KAKAO_CLIENT_SECRET,
     secretDisabled: process.env.KAKAO_CLIENT_SECRET_DISABLED === 'true',
     redirectUri: process.env.KAKAO_REDIRECT_URI || `${security.origin}/api/auth/kakao/callback`,
-    friendsEnabled: process.env.KAKAO_FRIENDS_ENABLED === 'true',
     signupRequired: process.env.KAKAO_SIGNUP_REQUIRED !== 'false',
   };
   const fetchImpl = options.fetchImpl || fetch;
@@ -36,13 +35,9 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
       const providerCode = String(body.code ?? body.error_code ?? 'unknown');
       console.warn(`[Kakao API] status=${response.status} code=${providerCode.replace(/[^A-Za-z0-9_-]/g,'')}`);
       const codes = {
-        '-5': ['카카오 앱에 친구 API 사용 권한이 없습니다. 개발자 콘솔의 추가 기능 신청에서 친구 API 권한을 확인해주세요. 개인 동의를 반복해도 해결되지 않습니다.', 403, 'KAKAO_APP_PERMISSION'],
         'KOE320': ['카카오 인증 요청이 만료되었습니다. 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
-        'KOE322': ['카카오 연결 기간이 만료되었습니다. 친구 동의 버튼으로 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
-        '-402': ['친구 목록 동의가 필요합니다. 아래 동의 버튼을 누른 뒤 다시 불러와주세요.', 403, 'KAKAO_CONSENT_REQUIRED'],
+        'KOE322': ['카카오 연결 기간이 만료되었습니다. 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
         '-401': ['카카오 인증이 만료되었습니다. 다시 연결해주세요.', 401, 'KAKAO_RECONNECT'],
-        '-403': ['카카오 앱의 친구 API 권한을 확인해주세요. 개발 중인 앱은 팀원 등 허용된 사용자만 조회될 수 있습니다.', 403, 'KAKAO_APP_PERMISSION'],
-        '-10': ['카카오 앱의 친구 API 사용 권한을 확인해주세요.', 403, 'KAKAO_APP_PERMISSION'],
         '-9': ['카카오 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.', 429, 'KAKAO_RATE_LIMIT'],
       };
       const [message, status, code] = codes[providerCode] || (response.status === 401 ? ['카카오 인증이 만료되었습니다. 다시 연결해주세요.',401,'KAKAO_RECONNECT'] : ['카카오 연결에 실패했습니다. 앱 설정과 연결 상태를 확인해주세요.', 502, 'KAKAO_UNAVAILABLE']);
@@ -54,30 +49,17 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
     body: new URLSearchParams({ client_id: config.clientId, ...(config.clientSecret ? { client_secret: config.clientSecret } : {}), ...params }),
   });
-  async function accessToken(userId) {
-    const account = db.prepare('SELECT * FROM kakao_accounts WHERE user_id = ?').get(userId);
-    if (!account) throw error('먼저 카카오 계정을 연결해주세요.', 409);
-    let tokens;
-    try { tokens = security.decrypt(account.tokens); } catch { throw error('카카오 계정을 다시 연결해주세요.', 401); }
-    if (account.expires_at <= Date.now() + 60000) {
-      if (!tokens.refresh_token) throw error('카카오 계정을 다시 연결해주세요.', 401);
-      const fresh = await tokenRequest({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token });
-      tokens = { ...tokens, ...fresh };
-      db.prepare('UPDATE kakao_accounts SET tokens = ?, expires_at = ? WHERE user_id = ?')
-        .run(security.encrypt(tokens), Date.now() + fresh.expires_in * 1000, userId);
-    }
-    return tokens.access_token;
-  }
   app.get('/api/auth/kakao/status', optionalAuth, (req, res) => res.json({
-    enabled: configured(), friendsEnabled: Boolean(config.friendsEnabled), redirectUri: config.redirectUri, signupRequired: signupRequired(),
+    enabled: configured(), redirectUri: config.redirectUri, signupRequired: signupRequired(),
     linked: Boolean(req.user && db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)),
     missing: [!config.clientId && 'REST API 키', !config.clientSecret && !config.secretDisabled && '클라이언트 시크릿'].filter(Boolean),
   }));
   app.get('/api/auth/kakao/start', optionalAuth, (req, res) => {
     if (!configured()) return res.redirect('/#kakao_error=configuration');
-    const mode = ['link', 'friends', 'recover'].includes(req.query.mode) ? req.query.mode : 'login';
-    if (['link', 'friends'].includes(mode) && !req.user) return res.redirect('/#kakao_error=login_required');
-    if (mode === 'friends' && !config.friendsEnabled) return res.redirect('/#kakao_error=friends_permission');
+    // 카카오 친구 API는 쓰지 않음: 예전 친구 동의 링크(mode=friends)는 일반 계정 연결로 처리
+    const requested = req.query.mode === 'friends' ? 'link' : req.query.mode;
+    const mode = ['link', 'recover'].includes(requested) ? requested : 'login';
+    if (mode === 'link' && !req.user) return res.redirect('/#kakao_error=login_required');
     const state = crypto.randomBytes(32).toString('base64url');
     db.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(Date.now());
     db.prepare('INSERT INTO oauth_states(state_hash,user_id,mode,expires_at) VALUES (?,?,?,?)')
@@ -85,7 +67,7 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     res.cookie('pickgo_oauth_state', state, { ...security.cookieOptions, maxAge: 600000 });
     const url = new URL('https://kauth.kakao.com/oauth/authorize');
     url.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: config.redirectUri, state,
-      ...(mode === 'friends' ? { scope: 'friends' } : {}), ...(mode === 'link' ? { prompt: 'select_account' } : {}) }).toString();
+      ...(mode === 'link' ? { prompt: 'select_account' } : {}) }).toString();
     res.redirect(url.toString());
   });
   app.get('/api/auth/kakao/callback', optionalAuth, async (req, res) => {
@@ -133,7 +115,7 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
         res.cookie(RESET_COOKIE, jwt.sign({ uid: userId }, security.secret, { audience: 'password-reset', expiresIn: '15m' }), { ...security.cookieOptions, maxAge: 900000 });
         return res.redirect('/#kakao_recover');
       }
-      res.redirect(pending.mode === 'friends' ? '/#kakao_friends_connected' : '/#kakao_connected');
+      res.redirect('/#kakao_connected');
     } catch (err) { res.redirect('/#kakao_error=' + (err.status === 409 ? 'already_linked' : 'configuration')); }
   });
   app.get('/api/auth/kakao/signup', (req, res) => {
@@ -155,29 +137,6 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     res.clearCookie(SIGNUP_COOKIE, security.cookieOptions);
     res.cookie('pickgo_token', issueToken({ id: userId }), { ...security.cookieOptions, maxAge: 30 * 86400000 });
     res.json({ user: { id: userId, nickname } });
-  }));
-  app.get('/api/kakao/friends', auth, asyncRoute(async (req, res) => {
-    if (!config.friendsEnabled) throw error('카카오 개발자 콘솔의 친구 목록 권한과 동의항목 설정이 필요합니다.', 409);
-    const offset = Number(req.query.offset || 0);
-    if (!Number.isInteger(offset) || offset < 0 || offset > 100000) throw error('잘못된 목록 위치입니다.');
-    const token = await accessToken(req.user.id);
-    const result = await kakao(`https://kapi.kakao.com/v1/api/talk/friends?limit=100&offset=${offset}`, { headers: { Authorization: `Bearer ${token}` } });
-    const friends = (result.elements || []).map(friend => {
-      const account = db.prepare('SELECT user_id FROM kakao_accounts WHERE kakao_id = ?').get(String(friend.id));
-      if (!account || account.user_id === req.user.id) return null;
-      return { id: account.user_id, nickname: friend.profile_nickname || '카카오 친구',
-        added: Boolean(db.prepare('SELECT 1 FROM friend_links WHERE owner_id = ? AND friend_id = ?').get(req.user.id, account.user_id)),
-        proof: jwt.sign({ owner: req.user.id, friend: account.user_id }, security.secret, { audience: 'friend-add', expiresIn: '5m' }) };
-    }).filter(Boolean);
-    res.json({ friends, totalCount: result.total_count || 0, nextOffset: offset + 100 < result.total_count ? offset + 100 : null });
-  }));
-  app.post('/api/friends', auth, asyncRoute(async (req, res) => {
-    let proof;
-    try { proof = jwt.verify(req.body.proof, security.secret, { algorithms: ['HS256'], audience: 'friend-add' }); }
-    catch { throw error('친구 목록을 새로 불러온 뒤 추가해주세요.', 403); }
-    if (proof.owner !== req.user.id || proof.friend === req.user.id) throw error('친구를 추가할 수 없습니다.', 403);
-    db.prepare('INSERT OR IGNORE INTO friend_links(owner_id,friend_id) VALUES (?,?)').run(req.user.id, proof.friend);
-    res.json({ ok: true });
   }));
   app.get('/api/friends', auth, (req, res) => res.json({ friends: db.prepare(`SELECT u.id,u.nickname FROM friend_links f JOIN users u ON u.id=f.friend_id WHERE f.owner_id=?`).all(req.user.id) }));
   app.post('/api/rooms/:id/invites', auth, asyncRoute(async (req, res) => {

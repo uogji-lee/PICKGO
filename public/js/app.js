@@ -47,11 +47,10 @@ async function api(path, opts = {}) {
 async function init() {
   initTheme();
   const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
-  const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.', not_linked: '이 카카오 계정과 연결된 PICKGO 계정이 없어요. 카카오를 연결하지 않은 계정은 찾을 수 없어요.' };
+  const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', not_linked: '이 카카오 계정과 연결된 PICKGO 계정이 없어요. 카카오를 연결하지 않은 계정은 찾을 수 없어요.' };
   const kakaoHash = location.hash;
   const fromKakao = location.hash.startsWith('#kakao');
-  state.autoLoadFriends = location.hash === '#kakao_friends_connected';
-  state.authNotice = oauthMessages[oauthError] || (state.autoLoadFriends ? '친구 목록 동의를 완료했습니다. 목록을 불러옵니다.' : location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
+  state.authNotice = oauthMessages[oauthError] || (location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
   if (location.hash.startsWith('#kakao')) history.replaceState(null, '', location.pathname);
   try {
     const { user } = await api('/me');
@@ -233,7 +232,7 @@ async function renderRoomList() {
   state.roomsNotice = '';
   appEl().innerHTML = `
     ${roomsNotice ? `<div class="card notice-card" role="status">${escapeHtml(roomsNotice)}</div>` : ''}
-    <details class="card collapsible-card"><summary><h2>카카오 연결 · 친구 · 받은 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
+    <details class="card collapsible-card"><summary><h2>계정 연결 · 친구 · 받은 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     <div class="card">
       <h2>방 만들기</h2>
       <input type="text" id="newRoomTitle" placeholder="방제 (예: 여름 휴가)" maxlength="30" />
@@ -607,7 +606,7 @@ async function renderRoomDetail() {
       <div id="memberAdmin"></div>
       </div>
     </details>
-    <details class="card collapsible-card" open><summary><h2>카카오 친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
+    <details class="card collapsible-card" open><summary><h2>친구 · 방 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     </section>
 
   `;

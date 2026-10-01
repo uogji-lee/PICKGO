@@ -8,8 +8,8 @@ process.env.PICKGO_JWT_SECRET = 'isolated-kakao-test-secret-not-production';
 const db = require('../db');
 const security = require('../services/security');
 const { registerKakaoAuth } = require('../services/kakaoAuth');
-let server, base, profileId = 1001, externalCalls = 0, simulatedError = null;
-const config = { clientId: 'test-client', clientSecret: 'test-secret', redirectUri: 'http://localhost:3000/api/auth/kakao/callback', friendsEnabled: true };
+let server, base, profileId = 1001, externalCalls = 0;
+const config = { clientId: 'test-client', clientSecret: 'test-secret', redirectUri: 'http://localhost:3000/api/auth/kakao/callback' };
 const optionalAuth = (req, res, next) => { if (req.headers['x-test-user']) req.user = { id: Number(req.headers['x-test-user']) }; next(); };
 const auth = (req, res, next) => optionalAuth(req, res, () => req.user ? next() : res.status(401).json({ error: 'login' }));
 const issueToken = user => jwt.sign({ uid: user.id }, security.secret);
@@ -19,11 +19,10 @@ before(async () => {
   app.use(express.json(), cookieParser());
   registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, { config, fetchImpl: async url => {
     externalCalls++;
-    if (simulatedError && url.includes('/talk/friends')) return {ok:false,status:403,json:async()=>({code:simulatedError})};
     let result;
     if (url.includes('/oauth/token')) result = { access_token: 'private-access-token', refresh_token: 'private-refresh-token', expires_in: 3600 };
     else if (url.includes('/v2/user/me')) result = { id: profileId, kakao_account: { profile: { nickname: '카카오친구' } } };
-    else result = { elements: [{ id: 1002, profile_nickname: '카카오친구2' }, { id: 9999, profile_nickname: '앱 미가입' }], total_count: 2 };
+    else return { ok: false, status: 404, json: async () => ({ code: -3 }) }; // 친구 API 등 다른 카카오 API는 호출하지 않아야 함
     return { ok: true, json: async () => result };
   } });
   server = app.listen(0, '127.0.0.1');
@@ -42,13 +41,13 @@ async function begin(user, mode = 'link') {
 }
 const finish = (pending, user) => call('/auth/kakao/callback?code=test-code&state=' + pending.state, user, null, pending.cookie);
 
-test('친구 동의 성공은 친구관리 복귀 신호를 전달하고 비활성화 시 명확히 거부한다', async () => {
-  const pending = await begin(1,'friends');
-  assert.equal(pending.url.searchParams.get('scope'),'friends');
-  assert.equal((await finish(pending,1)).headers.get('location'),'/#kakao_friends_connected');
-  config.friendsEnabled = false;
-  assert.equal((await call('/auth/kakao/start?mode=friends',1)).headers.get('location'),'/#kakao_error=friends_permission');
-  config.friendsEnabled = true;
+test('예전 친구 동의 링크(mode=friends)는 친구 동의 없이 일반 계정 연결로 처리한다', async () => {
+  assert.equal((await call('/auth/kakao/start?mode=friends')).headers.get('location'), '/#kakao_error=login_required');
+  const pending = await begin(1, 'friends');
+  assert.equal(pending.url.searchParams.get('scope'), null);
+  assert.equal(pending.url.searchParams.get('prompt'), 'select_account');
+  assert.equal((await finish(pending, 1)).headers.get('location'), '/#kakao_connected');
+  assert.equal(db.prepare('SELECT kakao_id FROM kakao_accounts WHERE user_id=1').get().kakao_id, '1001');
   db.prepare('DELETE FROM kakao_accounts WHERE user_id=1').run();
   externalCalls = 0;
 });
@@ -76,19 +75,19 @@ test('OAuth state·연결 계정·토큰 암호화 및 재사용을 검증한다
   assert.equal(db.prepare('SELECT count(*) AS n FROM kakao_accounts').get().n, 1);
 });
 
-test('카카오 친구 증명으로만 추가하고 초대는 수신자만 수락한다', async () => {
+test('카카오 친구 API는 없고, 방 초대는 내 친구에게만 보내며 수신자만 수락한다', async () => {
   profileId = 1002;
   assert.equal((await finish(await begin(2), 2)).headers.get('location'), '/#kakao_connected');
-  const consent = await begin(1, 'friends');
-  assert.equal(consent.url.searchParams.get('scope'), 'friends');
-  const { friends } = await (await call('/kakao/friends', 1)).json();
-  assert.equal(friends.length, 1);
-  assert.equal(friends[0].id, 2);
-  assert.equal((await call('/friends', 1, { userId: 2 })).status, 403);
-  assert.equal((await call('/friends', 2, { proof: friends[0].proof })).status, 403);
-  assert.equal((await call('/friends', 1, { proof: friends[0].proof })).status, 200);
+  const calls = externalCalls;
+  assert.equal((await call('/kakao/friends', 1)).status, 404);
+  assert.equal((await call('/friends', 1, { proof: 'anything', userId: 2 })).status, 404);
+  assert.equal(externalCalls, calls);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM friend_links').get().n, 0);
   db.prepare("INSERT INTO rooms(id,title,invite_code,host_user_id,membership_locked) VALUES (1,'친구 모임','ABCDEF',1,1)").run();
   db.prepare('INSERT INTO room_members(room_id,user_id) VALUES (1,1)').run();
+  assert.equal((await call('/rooms/1/invites', 1, { userId: 2 })).status, 400);
+  db.prepare('INSERT INTO friend_links(owner_id,friend_id) VALUES (1,2)').run(); // 닉네임으로 친구 추가한 상태
+  assert.deepEqual((await (await call('/friends', 1)).json()).friends, [{ id: 2, nickname: '기존친구2' }]);
   assert.equal((await call('/rooms/1/invites', 2, { userId: 1 })).status, 403);
   assert.equal((await call('/rooms/1/invites', 1, { userId: 2 })).status, 200);
   const { invites } = await (await call('/invites', 2)).json();
@@ -97,16 +96,6 @@ test('카카오 친구 증명으로만 추가하고 초대는 수신자만 수�
   assert.equal((await call(`/invites/${invites[0].id}/respond`, 2, { accept: true })).status, 200);
   assert.equal(db.prepare('SELECT active FROM room_members WHERE room_id=1 AND user_id=2').get().active, 1);
   assert.equal((await call(`/invites/${invites[0].id}/respond`, 2, { accept: true })).status, 404);
-});
-
-test('친구 동의 부족과 앱 권한 부족은 서로 다른 복구 방법을 반환한다', async () => {
-  for (const [provider,code] of [[-402,'KAKAO_CONSENT_REQUIRED'],[-5,'KAKAO_APP_PERMISSION']]) {
-    simulatedError=provider;
-    const result=await call('/kakao/friends',2);
-    assert.equal(result.status,403);
-    assert.equal((await result.json()).code,code);
-  }
-  simulatedError=null;
 });
 
 test('카카오 로그인은 기존 연결 계정을 재사용하며 설정 응답은 비밀값을 노출하지 않는다', async () => {
@@ -120,8 +109,7 @@ test('카카오 로그인은 기존 연결 계정을 재사용하며 설정 응�
   const status = await (await call('/auth/kakao/status', 2)).text();
   assert.ok(!status.includes('test-secret') && !status.includes('test-client'));
   assert.equal(JSON.parse(status).linked, true);
-  config.friendsEnabled = false;
-  assert.equal((await call('/kakao/friends', 2)).status, 409);
+  assert.ok(!('friendsEnabled' in JSON.parse(status)));
 });
 
 test('연결되지 않은 카카오 계정은 닉네임·비밀번호를 정해야 가입이 완료되고 계정에 연결된다', async () => {
