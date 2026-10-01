@@ -28,7 +28,39 @@ function destinationCandidateList(data) {
     </li>`).join('')}</ol>`;
 }
 
-async function loadDestination(room, isHost, tripMembers) {
+// 카카오 지도 장소 검색 결과 주소("강원특별자치도 정선군 …")에서 시·군·구 단위 지역을 뽑아냄 (서버 regionsFromPlaces와 같은 규칙)
+function regionsFromKakaoPlaces(documents) {
+  const found = new Map();
+  for (const doc of documents) {
+    const tokens = String(doc.address_name || doc.road_address_name || '').split(/\s+/).filter(Boolean);
+    if (!tokens.length) continue;
+    const name = tokens[0].startsWith('세종') ? tokens[0] : tokens.slice(0, 2).join(' ');
+    const entry = found.get(name) || { name, lats: [], lngs: [], sample: doc.place_name };
+    entry.lats.push(Number(doc.y));
+    entry.lngs.push(Number(doc.x));
+    found.set(name, entry);
+  }
+  return [...found.values()].map(entry => ({
+    name: entry.name,
+    lat: entry.lats.reduce((sum, value) => sum + value, 0) / entry.lats.length,
+    lng: entry.lngs.reduce((sum, value) => sum + value, 0) / entry.lngs.length,
+    sample: entry.sample,
+  })).filter(entry => Number.isFinite(entry.lat) && Number.isFinite(entry.lng));
+}
+
+// 지도 키가 있으면 브라우저에서 카카오 장소 검색으로 전국 지역을, 없으면 서버의 인기 여행지 목록에서 찾음
+async function searchRegions(query, mapKey) {
+  const builtin = await api(`/regions/search?q=${encodeURIComponent(query)}`).then(result => result.regions).catch(() => []);
+  if (!mapKey) return builtin;
+  const maps = await loadKakaoMapsSdk(mapKey);
+  const documents = await new Promise(resolve => new maps.services.Places().keywordSearch(query, (data, status) => {
+    resolve(status === maps.services.Status.OK ? data : []);
+  }, { size: 15 }));
+  const seen = new Set(builtin.map(region => region.name));
+  return [...builtin, ...regionsFromKakaoPlaces(documents).filter(region => !seen.has(region.name))].slice(0, 10);
+}
+
+async function loadDestination(room, isHost, tripMembers, mapKey = null) {
   const root = document.getElementById('destinationPanel');
   if (!root || !room.activeTripId) return;
   let data;
@@ -58,7 +90,7 @@ async function loadDestination(room, isHost, tripMembers) {
     ${data.method === 'wish' ? `
       ${data.canVote || data.isHost ? `<form id="destSearchForm" class="origin-search dest-search"><input id="destSearchInput" maxlength="30" placeholder="가고 싶은 지역 검색 (예: 정선, 군산, 남해)" aria-label="지역 검색"><button class="secondary">검색</button></form>
         <ul id="destSearchResults" class="origin-results"></ul>
-        ${data.searchProvider === 'builtin' ? '<p class="desc">카카오 키를 설정하면 전국 어느 지역이든 검색돼요. 지금은 인기 여행지 48곳 안에서만 검색돼요.</p>' : ''}` : '<p class="desc">이번 여행 참석자만 후보를 올리고 투표할 수 있어요.</p>'}
+        ${!mapKey && data.searchProvider === 'builtin' ? '<p class="desc">카카오 키를 설정하면 전국 어느 지역이든 검색돼요. 지금은 인기 여행지 48곳 안에서만 검색돼요.</p>' : ''}` : '<p class="desc">이번 여행 참석자만 후보를 올리고 투표할 수 있어요.</p>'}
       ${data.candidates.length ? destinationCandidateList(data) : '<p class="empty-state">아직 올라온 후보가 없어요.</p>'}` : ''}
     ${data.isHost ? `<button type="button" class="block" id="destDrawBtn" ${data.drawsLeft && (data.method === 'random' || data.candidates.length) ? '' : 'disabled'}>${data.drawsLeft ? drawText : '뽑기를 모두 썼어요'}</button>` : (data.method === 'random' ? '<p class="desc">방장이 추첨하면 모두의 화면에 결과가 떠요.</p>' : '')}
     <p id="destStatus" role="status"></p>`;
@@ -79,7 +111,7 @@ async function loadDestination(room, isHost, tripMembers) {
   };
 
   root.querySelectorAll('[data-dest-vote]').forEach(button => { button.onclick = async () => {
-    if (await post(button, '/vote', { key: button.dataset.destVote })) loadDestination(room, isHost, tripMembers);
+    if (await post(button, '/vote', { key: button.dataset.destVote })) loadDestination(room, isHost, tripMembers, mapKey);
   }; });
   root.querySelectorAll('[data-dest-voters]').forEach(button => { button.onclick = () => {
     const list = root.querySelector(`[data-dest-voter-list="${CSS.escape(button.dataset.destVoters)}"]`);
@@ -101,7 +133,7 @@ async function loadDestination(room, isHost, tripMembers) {
   }; });
   root.querySelectorAll('[data-dest-delete]').forEach(button => { button.onclick = async () => {
     if (!await confirmAction('이 후보를 삭제할까요? 받은 투표도 지워져요.')) return;
-    if (await post(button, '/candidates/delete', { key: button.dataset.destDelete })) loadDestination(room, isHost, tripMembers);
+    if (await post(button, '/candidates/delete', { key: button.dataset.destDelete })) loadDestination(room, isHost, tripMembers, mapKey);
   }; });
 
   const drawButton = document.getElementById('destDrawBtn');
@@ -124,15 +156,15 @@ async function loadDestination(room, isHost, tripMembers) {
     if (!query) { status('검색어를 입력해주세요.'); return; }
     status('검색 중…');
     try {
-      const found = await api(`/regions/search?q=${encodeURIComponent(query)}`);
+      const found = await searchRegions(query, mapKey);
       results.replaceChildren();
-      status(found.regions.length ? '' : '검색 결과가 없어요. 다른 이름으로 찾아보세요.');
-      for (const region of found.regions) {
+      status(found.length ? '' : '검색 결과가 없어요. 다른 이름으로 찾아보세요.');
+      for (const region of found) {
         const item = document.createElement('li');
         const already = data.candidates.some(candidate => candidate.region.name === region.name);
         item.innerHTML = `<button type="button" class="ghost" ${already ? 'disabled' : ''}><strong>${escapeHtml(region.name)}</strong><small>${already ? '이미 후보에 있어요' : region.sample ? `예: ${escapeHtml(region.sample)} 근처` : '인기 여행지'} · 후보로 올리기</small></button>`;
         item.querySelector('button').onclick = async event => {
-          if (await post(event.currentTarget, '/candidates', { region })) { showToast(`${region.name}을(를) 후보로 올렸어요.`, 'success'); loadDestination(room, isHost, tripMembers); }
+          if (await post(event.currentTarget, '/candidates', { region })) { showToast(`${region.name}을(를) 후보로 올렸어요.`, 'success'); loadDestination(room, isHost, tripMembers, mapKey); }
         };
         results.append(item);
       }

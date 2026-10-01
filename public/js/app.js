@@ -740,7 +740,7 @@ async function renderRoomDetail() {
   loadRoomFinance(room, members);
   loadPacking(room);
   loadLodging(room);
-  loadDestination(room, isHost, tripMembers);
+  loadDestination(room, isHost, tripMembers, mapKey);
   loadPastTrips(room);
   bindOriginForm(room, isHost, me, tripMembers, mapKey);
   if (room.activeTripId) bindEasyRegions(room, isHost, tripMembers, mapKey);
