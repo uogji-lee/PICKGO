@@ -77,6 +77,7 @@ async function configureKakaoLogin() {
   const button = el('#kakaoLoginLink');
   if (!button) return;
   const config = await api('/auth/kakao/status').catch(() => null);
+  state.kakaoStatus = config;
   if (!button.isConnected) return;
   if (config?.enabled) { button.href = '/api/auth/kakao/start'; button.removeAttribute('aria-disabled'); }
   else { button.textContent = '카카오 로그인 설정 대기'; el('#kakaoLoginInfo').textContent = config ? `${config.missing.join(', ')} 설정이 필요합니다.` : '설정을 불러오지 못했습니다.'; }

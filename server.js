@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { customAlphabet } = require('nanoid');
 const security = require('./services/security');
 const { registerKakaoAuth } = require('./services/kakaoAuth');
+const accounts = require('./services/accounts');
 
 const db = require('./db');
 const { registerRoomManagement } = require('./services/roomManagement');
@@ -94,7 +95,7 @@ function addDaysToDate(date, days) {
 
 // ---------- 회원가입 / 로그인 ----------
 const loginAttempts = new Map();
-app.use(['/api/login', '/api/signup'], (req, res, next) => {
+app.use(['/api/login', '/api/signup', '/api/auth/kakao/signup', '/api/me/password'], (req, res, next) => {
   const now = Date.now();
   for (const [key, value] of loginAttempts) if (value.until < now) loginAttempts.delete(key);
   const attempts = loginAttempts.get(req.ip) || { count: 0, until: now + 900000 };
@@ -106,21 +107,18 @@ app.use(['/api/login', '/api/signup'], (req, res, next) => {
   next();
 });
 app.post('/api/signup', (req, res) => {
+  if (kakaoAuth.signupRequired()) {
+    return res.status(403).json({ error: '카카오 본인 인증 후 가입할 수 있어요.', code: 'KAKAO_SIGNUP_REQUIRED' });
+  }
   const { nickname, password } = req.body || {};
   if (typeof nickname !== 'string' || typeof password !== 'string' || !nickname || !password) {
     return res.status(400).json({ error: '닉네임과 비밀번호를 모두 입력해주세요.' });
   }
-  const trimmed = String(nickname).trim();
-  if (trimmed.length < 2 || trimmed.length > 12) {
-    return res.status(400).json({ error: '닉네임은 2~12자로 입력해주세요.' });
-  }
-  if (password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
-    return res.status(400).json({ error: '비밀번호는 8자 이상, UTF-8 기준 72바이트 이내로 입력해주세요.' });
-  }
-  const exists = db.prepare('SELECT id FROM users WHERE nickname = ?').get(trimmed);
-  if (exists) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
-
-  const hash = bcrypt.hashSync(password, 10);
+  let trimmed, hash;
+  try {
+    trimmed = accounts.validateNickname(db, nickname);
+    hash = accounts.hashPassword(password);
+  } catch (error) { return res.status(error.status).json({ error: error.message }); }
   const info = db.prepare('INSERT INTO users (nickname, password_hash) VALUES (?, ?)').run(trimmed, hash);
   const user = { id: info.lastInsertRowid, nickname: trimmed };
   const token = issueToken(user);
@@ -149,10 +147,35 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', optionalAuth, (req, res) => {
-  res.json({ user: req.user ? { ...req.user, kakaoLinked: Boolean(db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)) } : null });
+  res.json({ user: req.user ? {
+    ...req.user,
+    kakaoLinked: Boolean(db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)),
+    hasPassword: Boolean(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id)?.password_hash),
+  } : null });
 });
 
-registerKakaoAuth(app, db, { auth, optionalAuth, issueToken });
+const kakaoAuth = registerKakaoAuth(app, db, { auth, optionalAuth, issueToken });
+
+// 비밀번호 변경: 현재 비밀번호 확인, 또는 카카오 본인 인증(비밀번호 찾기) 직후 15분 이내면 현재 비밀번호 없이 재설정
+app.post('/api/me/password', auth, (req, res) => {
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+  let verifiedByKakao = false;
+  try {
+    verifiedByKakao = jwt.verify(req.cookies[kakaoAuth.resetCookie] || '', JWT_SECRET, { algorithms: ['HS256'], audience: 'password-reset' }).uid === req.user.id;
+  } catch { /* 인증 쿠키 없음 또는 만료 */ }
+  if (!verifiedByKakao) {
+    if (!row.password_hash) return res.status(403).json({ error: '카카오 본인 인증 후 비밀번호를 설정할 수 있어요.' });
+    if (typeof req.body?.currentPassword !== 'string' || !bcrypt.compareSync(req.body.currentPassword, row.password_hash)) {
+      return res.status(401).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+    }
+  }
+  let hash;
+  try { hash = accounts.hashPassword(req.body?.newPassword); }
+  catch (error) { return res.status(error.status).json({ error: error.message }); }
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
+  res.clearCookie(kakaoAuth.resetCookie, security.cookieOptions);
+  res.json({ ok: true });
+});
 
 app.post('/api/me/profile', auth, (req, res) => {
   const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';

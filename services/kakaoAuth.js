@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const security = require('./security');
+const { hashPassword, validateNickname } = require('./accounts');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
 function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options = {}) {
@@ -9,9 +10,20 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     secretDisabled: process.env.KAKAO_CLIENT_SECRET_DISABLED === 'true',
     redirectUri: process.env.KAKAO_REDIRECT_URI || `${security.origin}/api/auth/kakao/callback`,
     friendsEnabled: process.env.KAKAO_FRIENDS_ENABLED === 'true',
+    signupRequired: process.env.KAKAO_SIGNUP_REQUIRED !== 'false',
   };
   const fetchImpl = options.fetchImpl || fetch;
   const configured = () => Boolean(config.clientId && (config.clientSecret || config.secretDisabled));
+  // 카카오가 설정된 서버에서는 신규 가입 시 카카오 본인 인증을 거치도록 함 (KAKAO_SIGNUP_REQUIRED=false로 해제)
+  const signupRequired = () => configured() && config.signupRequired !== false;
+  const SIGNUP_COOKIE = 'pickgo_kakao_signup';
+  const RESET_COOKIE = 'pickgo_password_reset';
+  const pendingSignup = req => {
+    const raw = req.cookies?.[SIGNUP_COOKIE];
+    if (typeof raw !== 'string' || raw.length > 200) return null;
+    const row = db.prepare('SELECT * FROM kakao_signups WHERE token_hash = ?').get(hash(raw));
+    return row && row.expires_at > Date.now() ? row : null;
+  };
   const error = (message, status = 400) => Object.assign(new Error(message), { status });
   const asyncRoute = handler => async (req, res) => {
     try { await handler(req, res); }
@@ -57,19 +69,19 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     return tokens.access_token;
   }
   app.get('/api/auth/kakao/status', optionalAuth, (req, res) => res.json({
-    enabled: configured(), friendsEnabled: Boolean(config.friendsEnabled), redirectUri: config.redirectUri,
+    enabled: configured(), friendsEnabled: Boolean(config.friendsEnabled), redirectUri: config.redirectUri, signupRequired: signupRequired(),
     linked: Boolean(req.user && db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)),
     missing: [!config.clientId && 'REST API 키', !config.clientSecret && !config.secretDisabled && '클라이언트 시크릿'].filter(Boolean),
   }));
   app.get('/api/auth/kakao/start', optionalAuth, (req, res) => {
     if (!configured()) return res.redirect('/#kakao_error=configuration');
-    const mode = ['link', 'friends'].includes(req.query.mode) ? req.query.mode : 'login';
-    if (mode !== 'login' && !req.user) return res.redirect('/#kakao_error=login_required');
+    const mode = ['link', 'friends', 'recover'].includes(req.query.mode) ? req.query.mode : 'login';
+    if (['link', 'friends'].includes(mode) && !req.user) return res.redirect('/#kakao_error=login_required');
     if (mode === 'friends' && !config.friendsEnabled) return res.redirect('/#kakao_error=friends_permission');
     const state = crypto.randomBytes(32).toString('base64url');
     db.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(Date.now());
     db.prepare('INSERT INTO oauth_states(state_hash,user_id,mode,expires_at) VALUES (?,?,?,?)')
-      .run(hash(state), mode === 'login' ? null : req.user.id, mode, Date.now() + 600000);
+      .run(hash(state), ['login', 'recover'].includes(mode) ? null : req.user.id, mode, Date.now() + 600000);
     res.cookie('pickgo_oauth_state', state, { ...security.cookieOptions, maxAge: 600000 });
     const url = new URL('https://kauth.kakao.com/oauth/authorize');
     url.search = new URLSearchParams({ response_type: 'code', client_id: config.clientId, redirect_uri: config.redirectUri, state,
@@ -94,12 +106,8 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
         if (pending.user_id && existing && pending.user_id !== existing.user_id) throw error('이미 다른 계정에 연결되어 있습니다.', 409);
         const linked = pending.user_id && db.prepare('SELECT kakao_id FROM kakao_accounts WHERE user_id = ?').get(pending.user_id);
         if (linked && linked.kakao_id !== kakaoId) throw error('다른 카카오 계정으로 교체할 수 없습니다.', 409);
-        let id = pending.user_id || existing?.user_id;
-        if (!id) {
-          const raw = profile.kakao_account?.profile?.nickname || '카카오친구';
-          const nickname = String(raw).slice(0, 6) + '_' + crypto.randomBytes(3).toString('hex');
-          id = db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run(nickname, '').lastInsertRowid;
-        }
+        const id = pending.user_id || existing?.user_id;
+        if (!id) return null; // 연결된 계정이 없으면 가입 완료 화면에서 닉네임·비밀번호를 정함
         if (!tokens.refresh_token) {
           const previous = db.prepare('SELECT tokens FROM kakao_accounts WHERE user_id=? AND kakao_id=?').get(id,kakaoId);
           if (previous) { try { tokens.refresh_token = security.decrypt(previous.tokens).refresh_token; } catch {} }
@@ -109,10 +117,45 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
           .run(id, kakaoId, security.encrypt(tokens), Date.now() + tokens.expires_in * 1000);
         return id;
       })();
+      if (!userId) {
+        if (pending.mode === 'recover') return res.redirect('/#kakao_error=not_linked');
+        const raw = crypto.randomBytes(32).toString('base64url');
+        db.prepare('DELETE FROM kakao_signups WHERE expires_at < ? OR kakao_id = ?').run(Date.now(), kakaoId);
+        db.prepare('INSERT INTO kakao_signups(token_hash,kakao_id,tokens,token_expires_at,nickname_hint,expires_at) VALUES (?,?,?,?,?,?)')
+          .run(hash(raw), kakaoId, security.encrypt(tokens), Date.now() + tokens.expires_in * 1000,
+            String(profile.kakao_account?.profile?.nickname || '').slice(0, 12), Date.now() + 900000);
+        res.cookie(SIGNUP_COOKIE, raw, { ...security.cookieOptions, maxAge: 900000 });
+        return res.redirect('/#kakao_signup');
+      }
       res.cookie('pickgo_token', issueToken({ id: userId }), { ...security.cookieOptions, maxAge: 30 * 86400000 });
+      if (pending.mode === 'recover') {
+        // 카카오 본인 인증 직후 15분 동안만 기존 비밀번호 없이 새 비밀번호 설정 허용
+        res.cookie(RESET_COOKIE, jwt.sign({ uid: userId }, security.secret, { audience: 'password-reset', expiresIn: '15m' }), { ...security.cookieOptions, maxAge: 900000 });
+        return res.redirect('/#kakao_recover');
+      }
       res.redirect(pending.mode === 'friends' ? '/#kakao_friends_connected' : '/#kakao_connected');
     } catch (err) { res.redirect('/#kakao_error=' + (err.status === 409 ? 'already_linked' : 'configuration')); }
   });
+  app.get('/api/auth/kakao/signup', (req, res) => {
+    const pending = pendingSignup(req);
+    res.json({ pending: Boolean(pending), nicknameHint: pending?.nickname_hint || '' });
+  });
+  app.post('/api/auth/kakao/signup', asyncRoute(async (req, res) => {
+    const pending = pendingSignup(req);
+    if (!pending) throw error('카카오 인증이 만료되었습니다. 다시 인증해주세요.', 401);
+    const nickname = validateNickname(db, req.body?.nickname);
+    const passwordHash = hashPassword(req.body?.password);
+    const userId = db.transaction(() => {
+      if (db.prepare('SELECT 1 FROM kakao_accounts WHERE kakao_id = ?').get(pending.kakao_id)) throw error('이미 가입된 카카오 계정입니다. 로그인해주세요.', 409);
+      const id = db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run(nickname, passwordHash).lastInsertRowid;
+      db.prepare('INSERT INTO kakao_accounts(user_id,kakao_id,tokens,expires_at) VALUES (?,?,?,?)').run(id, pending.kakao_id, pending.tokens, pending.token_expires_at);
+      db.prepare('DELETE FROM kakao_signups WHERE token_hash = ?').run(pending.token_hash);
+      return id;
+    })();
+    res.clearCookie(SIGNUP_COOKIE, security.cookieOptions);
+    res.cookie('pickgo_token', issueToken({ id: userId }), { ...security.cookieOptions, maxAge: 30 * 86400000 });
+    res.json({ user: { id: userId, nickname } });
+  }));
   app.get('/api/kakao/friends', auth, asyncRoute(async (req, res) => {
     if (!config.friendsEnabled) throw error('카카오 개발자 콘솔의 친구 목록 권한과 동의항목 설정이 필요합니다.', 409);
     const offset = Number(req.query.offset || 0);
@@ -165,5 +208,6 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     })();
     res.json({ ok: true, roomId });
   }));
+  return { configured, signupRequired, resetCookie: RESET_COOKIE };
 }
 module.exports = { registerKakaoAuth };

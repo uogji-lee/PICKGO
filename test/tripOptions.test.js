@@ -80,3 +80,21 @@ test('드레스코드는 방장이 켠 여행에서만 참석자 컨셉 중 하�
   assert.equal(detail.dresscodeEnabled, false);
   assert.equal(detail.selectedDresscode, null);
 });
+
+test('비밀번호 변경은 현재 비밀번호 또는 카카오 재설정 인증이 있어야 한다', async () => {
+  const jwt = require('jsonwebtoken');
+  const me = users[2];
+  assert.equal((await request('/me', me)).data.user.hasPassword, true);
+  assert.equal((await request('/me/password', me, { currentPassword: 'wrong-pass', newPassword: 'new-password-1' })).status, 401);
+  assert.equal((await request('/me/password', me, { currentPassword: 'test-pass', newPassword: 'short' })).status, 400);
+  assert.equal((await request('/me/password', me, { currentPassword: 'test-pass', newPassword: 'new-password-1' })).status, 200);
+  assert.equal((await request('/login', null, { nickname: me.nickname, password: 'new-password-1' })).status, 200);
+
+  // 다른 사람의 재설정 인증으로는 바꿀 수 없음
+  const resetFor = uid => 'pickgo_password_reset=' + jwt.sign({ uid }, process.env.PICKGO_JWT_SECRET, { audience: 'password-reset', expiresIn: '15m' });
+  const withCookie = extra => ({ ...me, cookie: `${me.cookie}; ${extra}` });
+  assert.equal((await request('/me/password', withCookie(resetFor(users[0].id)), { newPassword: 'new-password-2' })).status, 401);
+  const reset = await request('/me/password', withCookie(resetFor(me.id)), { newPassword: 'new-password-2' });
+  assert.equal(reset.status, 200);
+  assert.equal((await request('/login', null, { nickname: me.nickname, password: 'new-password-2' })).status, 200);
+});

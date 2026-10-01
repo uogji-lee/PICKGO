@@ -34,7 +34,8 @@ async function api(path, opts = {}) {
 // ---------- 초기화 ----------
 async function init() {
   const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
-  const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.' };
+  const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.', not_linked: '이 카카오 계정과 연결된 PICKGO 계정이 없어요. 카카오를 연결하지 않은 계정은 찾을 수 없어요.' };
+  const kakaoHash = location.hash;
   const fromKakao = location.hash.startsWith('#kakao');
   state.autoLoadFriends = location.hash === '#kakao_friends_connected';
   state.authNotice = oauthMessages[oauthError] || (state.autoLoadFriends ? '친구 목록 동의를 완료했습니다. 목록을 불러옵니다.' : location.hash === '#kakao_connected' ? '카카오 계정이 연결되었습니다.' : '');
@@ -42,7 +43,9 @@ async function init() {
   try {
     const { user } = await api('/me');
     state.user = user;
-    state.view = user ? (fromKakao ? 'account' : 'rooms') : 'auth';
+    state.view = user
+      ? (kakaoHash === '#kakao_recover' ? 'passwordReset' : fromKakao ? 'account' : 'rooms')
+      : (kakaoHash === '#kakao_signup' ? 'kakaoSignup' : 'auth');
   } catch (e) {
     state.view = 'auth';
     state.authNotice = e.message;
@@ -88,6 +91,12 @@ function render() {
     renderAccount();
   } else if (state.view === 'room') {
     renderRoomDetail();
+  } else if (state.view === 'kakaoSignup') {
+    renderKakaoSignup();
+  } else if (state.view === 'findAccount') {
+    renderFindAccount();
+  } else if (state.view === 'passwordReset') {
+    renderPasswordReset();
   }
 }
 
@@ -108,12 +117,23 @@ function renderAuth() {
       <form id="loginForm"><input type="text" id="nickname" name="username" autocomplete="username" aria-label="닉네임" placeholder="닉네임 (2~12자)" maxlength="12" required />
       <input type="password" id="password" name="password" autocomplete="current-password" aria-label="비밀번호" placeholder="비밀번호 (신규 가입은 8자 이상)" required />
       <button type="submit" class="block" id="submitBtn">로그인</button></form>
+      <div id="kakaoSignupGuide" hidden>
+        <p class="desc">PICKGO는 카카오 본인 인증 후 가입해요. 인증이 끝나면 사용할 닉네임과 비밀번호를 정하면 돼요. 카카오 인증을 해 두면 아이디·비밀번호를 잊어도 찾을 수 있어요.</p>
+        <a class="kakao-login-link" href="/api/auth/kakao/start">카카오로 인증하고 가입하기</a>
+      </div>
+      <button type="button" class="link-btn" id="findAccountBtn">아이디·비밀번호 찾기</button>
     </div>
   `;
-  configureKakaoLogin();
   let mode = 'login';
+  configureKakaoLogin().then(() => { if (el('#loginForm')) setMode(mode); });
+  el('#findAccountBtn').onclick = () => { state.view = 'findAccount'; render(); };
   const setMode = (m) => {
     mode = m;
+    // 카카오가 설정된 서버는 카카오 본인 인증으로만 신규 가입
+    const kakaoSignup = m === 'signup' && Boolean(state.kakaoStatus?.signupRequired);
+    el('#loginForm').hidden = kakaoSignup;
+    el('#kakaoSignupGuide').hidden = !kakaoSignup;
+    el('#kakaoLoginLink').hidden = kakaoSignup;
     el('#tabLogin').className = m === 'login' ? 'secondary' : '';
     el('#tabSignup').className = m === 'signup' ? 'secondary' : '';
     el('#submitBtn').textContent = m === 'login' ? '로그인' : '회원가입';
@@ -157,7 +177,10 @@ async function renderRoomList() {
     return;
   }
 
+  const roomsNotice = state.roomsNotice;
+  state.roomsNotice = '';
   appEl().innerHTML = `
+    ${roomsNotice ? `<div class="card notice-card" role="status">${escapeHtml(roomsNotice)}</div>` : ''}
     <details class="card collapsible-card"><summary><h2>카카오 연결 · 친구 · 받은 초대</h2></summary><div id="kakaoSocialPanel" class="collapsible-card-content"></div></details>
     <div class="card">
       <h2>방 만들기</h2>

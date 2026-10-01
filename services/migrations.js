@@ -62,6 +62,10 @@ module.exports = function migrate(db) {
     `);
     add('journeys', 'itinerary_json', 'TEXT');
     add('journeys', 'notes', "TEXT NOT NULL DEFAULT ''");
+    db.exec(`CREATE TABLE IF NOT EXISTS kakao_signups (
+      token_hash TEXT PRIMARY KEY, kakao_id TEXT NOT NULL, tokens TEXT NOT NULL,
+      token_expires_at INTEGER NOT NULL, nickname_hint TEXT NOT NULL DEFAULT '', expires_at INTEGER NOT NULL
+    );`);
     db.exec(`CREATE TABLE IF NOT EXISTS journey_edits (
       id INTEGER PRIMARY KEY, trip_id INTEGER NOT NULL REFERENCES journeys(id),
       edited_by INTEGER NOT NULL REFERENCES users(id), before_json TEXT NOT NULL,

@@ -837,3 +837,12 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   .day-cell .best-label { padding: 1px 3px; font-size: 8px; }
   .day-cell .count { margin-top: 0; padding: 0 3px; font-size: 9px; }
 }
+
+/* 계정 찾기 · 가입 완료 · 비밀번호 */
+.account-form form { display: grid; gap: 10px; }
+.account-form label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.account-form .kakao-login-link { margin: 12px 0; }
+.account-form .found-nickname { padding: 12px 14px; border-radius: 10px; background: var(--bg); }
+.account-form .error-msg:empty, #passwordChangeStatus:empty { display: none; }
+#findAccountBtn { display: block; margin: 12px auto 0; }
+.notice-card { color: #0f766e; font-weight: 600; }

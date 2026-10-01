@@ -123,3 +123,41 @@ test('카카오 로그인은 기존 연결 계정을 재사용하며 설정 응�
   config.friendsEnabled = false;
   assert.equal((await call('/kakao/friends', 2)).status, 409);
 });
+
+test('연결되지 않은 카카오 계정은 닉네임·비밀번호를 정해야 가입이 완료되고 계정에 연결된다', async () => {
+  profileId = 3003;
+  const before = db.prepare('SELECT count(*) AS n FROM users').get().n;
+  const response = await finish(await begin(null, 'login'));
+  assert.equal(response.headers.get('location'), '/#kakao_signup');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM users').get().n, before);
+  const signupCookie = response.headers.getSetCookie().find(value => value.startsWith('pickgo_kakao_signup=')).split(';')[0];
+  assert.ok(!response.headers.getSetCookie().some(value => value.startsWith('pickgo_token=')));
+  assert.deepEqual(await (await call('/auth/kakao/signup', null, null, signupCookie)).json(), { pending: true, nicknameHint: '카카오친구' });
+  assert.equal((await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'short' }, signupCookie)).status, 400);
+  assert.equal((await call('/auth/kakao/signup', null, { nickname: '기존친구1', password: 'long-enough-pass' }, signupCookie)).status, 409);
+  assert.equal((await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' })).status, 401);
+  const done = await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' }, signupCookie);
+  assert.equal(done.status, 200);
+  const { user } = await done.json();
+  assert.equal(db.prepare('SELECT kakao_id FROM kakao_accounts WHERE user_id = ?').get(user.id).kakao_id, '3003');
+  assert.ok(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id).password_hash.startsWith('$2'));
+  // 같은 인증으로 두 번 가입할 수 없고, 다음 카카오 로그인은 만든 계정으로 바로 로그인
+  assert.equal((await call('/auth/kakao/signup', null, { nickname: '또친구', password: 'long-enough-pass' }, signupCookie)).status, 401);
+  const again = await finish(await begin(null, 'login'));
+  assert.equal(again.headers.get('location'), '/#kakao_connected');
+  const token = again.headers.getSetCookie().find(value => value.startsWith('pickgo_token=')).split(';')[0].slice('pickgo_token='.length);
+  assert.equal(jwt.verify(token, security.secret).uid, user.id);
+  assert.equal(JSON.parse(await (await call('/auth/kakao/status')).text()).signupRequired, true);
+});
+
+test('비밀번호 찾기는 카카오에 연결된 계정만 로그인시키고 15분짜리 재설정 권한을 준다', async () => {
+  profileId = 4004;
+  assert.equal((await finish(await begin(null, 'recover'))).headers.get('location'), '/#kakao_error=not_linked');
+  profileId = 3003;
+  const response = await finish(await begin(null, 'recover'));
+  assert.equal(response.headers.get('location'), '/#kakao_recover');
+  const reset = response.headers.getSetCookie().find(value => value.startsWith('pickgo_password_reset='));
+  const claims = jwt.verify(reset.split(';')[0].slice('pickgo_password_reset='.length), security.secret, { audience: 'password-reset' });
+  assert.equal(claims.uid, db.prepare("SELECT user_id FROM kakao_accounts WHERE kakao_id = '3003'").get().user_id);
+  assert.ok(claims.exp - claims.iat <= 900);
+});

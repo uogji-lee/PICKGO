@@ -46,6 +46,7 @@ npm start
 | `PICKGO_PUBLIC_URL` | 브라우저 접속 주소. 운영 환경 HTTPS 필수 | `http://localhost:3000` |
 | `KAKAO_CLIENT_SECRET` | 카카오 로그인용 클라이언트 시크릿 (지도 키와 별개) | 미설정 시 카카오 로그인 대기 |
 | `KAKAO_REDIRECT_URI` | 카카오 콘솔에 등록한 콜백 주소와 정확히 일치 | `{PICKGO_PUBLIC_URL}/api/auth/kakao/callback` |
+| `KAKAO_SIGNUP_REQUIRED` | 카카오 키가 설정된 서버에서 신규 가입 시 카카오 본인 인증 필수 여부 | `true` (카카오 미설정 시 일반 가입) |
 | `KAKAO_FRIENDS_ENABLED` | 친구 목록 권한·동의항목 설정 후 `true` | `false` |
 | `PICKGO_TRUST_PROXY` | 신뢰하는 리버스 프록시 1개 뒤에서만 `1` | `0` |
 | `PICKGO_DB_PATH` | SQLite 파일 경로 | `data/pickgo.db` |
@@ -190,6 +191,11 @@ pickgo/
 - 기존 SQLite에 컬럼·테이블을 추가하고 기존 방의 지출을 첫 여행에 연결합니다. 회원과 회비는 삭제하지 않습니다. 배포 전 DB를 백업해주세요.
 
 ## 카카오 로그인 · 친구 연결 · 보안
+
+**가입 · 아이디/비밀번호 찾기**
+- 카카오 키가 설정되면 신규 가입은 카카오 본인 인증 → 닉네임·비밀번호 설정 순서로만 가능합니다. 가입한 계정은 카카오와 연결됩니다.
+- 로그인 화면의 '아이디·비밀번호 찾기'에서 카카오로 인증하면 닉네임(아이디)을 보여주고, 15분 동안 기존 비밀번호 없이 새 비밀번호를 정할 수 있습니다. 카카오를 연결하지 않은 계정은 찾을 수 없으므로 기존 회원은 로그인 후 '계정 · 친구'에서 카카오 계정을 연결해 두세요.
+- 계정 화면에서 현재 비밀번호를 확인한 뒤 비밀번호를 변경할 수 있습니다.
 
 1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app/1560656)에서 카카오 로그인을 활성화하고 Redirect URI에 `http://localhost:3000/api/auth/kakao/callback` 등록 (배포 시 실제 HTTPS 도메인 사용).
 2. 서버 `.env`의 `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` 설정 후 재시작. 시크릿은 채팅·소스·Git에 넣지 않습니다. 운영 도메인과 `PICKGO_PUBLIC_URL`은 정확히 일치해야 합니다.
