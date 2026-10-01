@@ -9,12 +9,16 @@
 <body>
   <header class="topbar">
     <div class="logo">🧭 PICKGO</div>
-    <div id="userBox" class="user-box"></div>
+    <div class="topbar-right">
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="어두운 화면으로 전환">🌙</button>
+      <div id="userBox" class="user-box"></div>
+    </div>
   </header>
 
   <main id="app" class="app"></main>
   <button id="helpGuide" class="ghost help-guide" type="button">사용 가이드</button>
 
+  <script src="/js/ui.js"></script>
   <script src="/js/guide.js"></script>
   <script src="/js/packing.js"></script>
   <script src="/js/expenseOverview.js"></script>

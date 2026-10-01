@@ -1,0 +1,101 @@
+// 공통 UI: 다크모드 · 토스트 · 입력 모달 · 추첨 슬롯 애니메이션 · 로딩 스켈레톤
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme')
+    || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+function updateThemeToggleIcon() {
+  const button = document.getElementById('themeToggle');
+  if (!button) return;
+  const dark = currentTheme() === 'dark';
+  button.textContent = dark ? '☀️' : '🌙';
+  button.setAttribute('aria-label', dark ? '밝은 화면으로 전환' : '어두운 화면으로 전환');
+}
+function initTheme() {
+  try {
+    const saved = localStorage.getItem('pickgo_theme');
+    if (saved === 'dark' || saved === 'light') document.documentElement.setAttribute('data-theme', saved);
+  } catch { /* 저장소를 쓸 수 없는 환경 */ }
+  updateThemeToggleIcon();
+  const button = document.getElementById('themeToggle');
+  if (button) button.onclick = () => {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('pickgo_theme', next); } catch { /* 무시 */ }
+    updateThemeToggleIcon();
+  };
+}
+
+function showToast(message, type = 'info', duration = 2800) {
+  let root = document.getElementById('toastRoot');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'toastRoot';
+    root.className = 'toast-root';
+    root.setAttribute('role', 'status');
+    root.setAttribute('aria-live', 'polite');
+    document.body.appendChild(root);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  root.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 250); }, duration);
+}
+
+// 입력 모달 (브라우저 기본 prompt 대체)
+function showPrompt({ title = '입력', message = '', defaultValue = '', okText = '확인', maxlength = 30 } = {}) {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'action-dialog';
+    dialog.innerHTML = `<form method="dialog"><h2>${escapeHtml(title)}</h2>${message ? `<p>${escapeHtml(message)}</p>` : ''}
+      <input name="value" maxlength="${maxlength}" value="${escapeHtml(defaultValue)}" autocomplete="off" required>
+      <div class="dialog-actions"><button value="cancel" class="ghost" formnovalidate>취소</button><button value="confirm">${escapeHtml(okText)}</button></div></form>`;
+    dialog.addEventListener('close', () => {
+      const value = dialog.returnValue === 'confirm' ? dialog.querySelector('input').value.trim() : null;
+      dialog.remove();
+      resolve(value || null);
+    }, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+    dialog.querySelector('input').select();
+  });
+}
+
+// 추첨 슬롯 애니메이션: 후보 이름이 빠르게 돌다가 점점 느려지며 결과에 멈춤
+let isDrawing = false;
+function runDrawAnimation({ label = '🎲 여행지를 뽑는 중…', pool = [], final, subPool = [], subFinal = null, duration = 2600 }) {
+  isDrawing = true;
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'draw-dialog';
+    dialog.innerHTML = `<div class="draw-box"><div class="draw-label">${escapeHtml(label)}</div><div class="draw-region" aria-live="off">???</div><div class="draw-sub"></div><p class="draw-result" role="status"></p></div>`;
+    document.body.append(dialog);
+    dialog.showModal();
+    const main = dialog.querySelector('.draw-region');
+    const sub = dialog.querySelector('.draw-sub');
+    const names = pool.length ? pool : [final];
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const start = Date.now();
+    const finish = () => {
+      main.textContent = final;
+      main.classList.add('landed');
+      if (subFinal) sub.textContent = `👗 ${subFinal}`;
+      dialog.querySelector('.draw-result').textContent = `결과: ${final}${subFinal ? `, 드레스코드 ${subFinal}` : ''}`;
+      setTimeout(() => { dialog.close(); dialog.remove(); isDrawing = false; resolve(); }, 1100);
+    };
+    if (reduceMotion) { finish(); return; }
+    (function tick() {
+      const elapsed = Date.now() - start;
+      if (elapsed >= duration) { finish(); return; }
+      main.textContent = names[Math.floor(Math.random() * names.length)];
+      if (subPool.length) sub.textContent = `👗 ${subPool[Math.floor(Math.random() * subPool.length)]}`;
+      const progress = elapsed / duration;
+      setTimeout(tick, 40 + progress * progress * 260);
+    })();
+  });
+}
+
+function skeletonCard(lines = 3) {
+  return `<div class="card skeleton-card" aria-busy="true" aria-label="불러오는 중">${'<div class="skeleton-line"></div>'.repeat(lines)}</div>`;
+}

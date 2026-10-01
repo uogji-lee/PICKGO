@@ -11,19 +11,19 @@ function bindMemberManagement(room, members) {
   async function update(button, id, action, body) {
     button.disabled = true;
     try { await api(`/rooms/${room.id}/members/${id}/${action}`, { method: 'POST', body }); render(); }
-    catch (error) { alert(error.message); button.disabled = false; }
+    catch (error) { showToast(error.message, 'error'); button.disabled = false; }
   }
-  document.querySelectorAll('[data-member-role]').forEach(select => { select.onchange = () => {
-    if (select.value === 'treasurer' && !confirm('총무를 변경할까요? 장부 편집 권한도 새 총무에게 이동합니다.')) {
+  document.querySelectorAll('[data-member-role]').forEach(select => { select.onchange = async () => {
+    if (select.value === 'treasurer' && !await confirmAction('총무를 변경할까요? 장부 편집 권한도 새 총무에게 이동합니다.')) {
       select.value = members.find(member => member.id === Number(select.dataset.memberRole)).role; return;
     }
     update(select, select.dataset.memberRole, 'role', { role: select.value });
   }; });
-  document.querySelectorAll('[data-transfer-host]').forEach(button => { button.onclick = () => {
-    if (confirm('방장을 위임할까요? 내 방장 권한이 없어집니다.')) update(button, button.dataset.transferHost, 'role', { role: 'host' });
+  document.querySelectorAll('[data-transfer-host]').forEach(button => { button.onclick = async () => {
+    if (await confirmAction('방장을 위임할까요? 내 방장 권한이 없어집니다.')) update(button, button.dataset.transferHost, 'role', { role: 'host' });
   }; });
-  document.querySelectorAll('[data-kick-member]').forEach(button => { button.onclick = () => {
-    if (confirm('이 멤버를 추방할까요? 재입장은 차단되고 기존 납부·여행 기록은 보존됩니다.')) update(button, button.dataset.kickMember, 'kick', {});
+  document.querySelectorAll('[data-kick-member]').forEach(button => { button.onclick = async () => {
+    if (await confirmAction('이 멤버를 추방할까요? 재입장은 차단되고 기존 납부·여행 기록은 보존됩니다.')) update(button, button.dataset.kickMember, 'kick', {});
   }; });
 }
 
@@ -130,7 +130,7 @@ async function loadRoomFinance(room, members) {
       confirmButton.onclick = () => mutate(confirmButton, `trips/${current.id}/finish`, {}, true);
     }
     container.querySelectorAll('[data-nudge]').forEach(button => { button.onclick = () => mutate(button, 'finance/nudges', { userId: Number(button.dataset.nudge) }); });
-    container.querySelectorAll('[data-void]').forEach(button => { button.onclick = () => { if (confirm('이 기록을 취소할까요? 실제 송금은 취소되지 않으며 취소 이력은 보존됩니다.')) mutate(button, `finance/${button.dataset.void}/void`, {}); }; });
+    container.querySelectorAll('[data-void]').forEach(button => { button.onclick = async () => { if (await confirmAction('이 기록을 취소할까요? 실제 송금은 취소되지 않으며 취소 이력은 보존됩니다.')) mutate(button, `finance/${button.dataset.void}/void`, {}); }; });
     const payer = el('#payerSelect', container), paymentAmount = el('#paymentAmount', container);
     if (payer) {
       const update = () => { const person = people.find(person => person.id === Number(payer.value)); el('#payerExisting', container).textContent = `기존 납부 ${won(person.paid)} + 이번 ${won(Number(paymentAmount.value))} = 누적 ${won(person.paid + Number(paymentAmount.value))}`; };

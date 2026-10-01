@@ -33,6 +33,7 @@ async function api(path, opts = {}) {
 
 // ---------- 초기화 ----------
 async function init() {
+  initTheme();
   const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
   const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', friends_permission: '카카오 친구 목록 권한을 먼저 설정해주세요.', not_linked: '이 카카오 계정과 연결된 PICKGO 계정이 없어요. 카카오를 연결하지 않은 계정은 찾을 수 없어요.' };
   const kakaoHash = location.hash;
@@ -78,11 +79,50 @@ function escapeHtml(str) {
   }[c]));
 }
 
+// ---------- 실시간 동기화 ----------
+let syncTimer = null;
+let syncedVersion = null;
+let editingSinceRender = false;
+const regionNameCache = [];
+async function regionNames() {
+  if (!regionNameCache.length) {
+    try { regionNameCache.push(...(await api('/regions')).regions.map(region => region.name)); } catch { /* 연출용이라 실패해도 무시 */ }
+  }
+  return regionNameCache;
+}
+function stopRoomSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
+function startRoomSync(roomId) {
+  stopRoomSync();
+  syncTimer = setInterval(async () => {
+    if (state.view !== 'room' || state.roomId !== roomId || document.hidden || isDrawing || document.querySelector('dialog[open]')) return;
+    try {
+      const { version } = await api(`/rooms/${roomId}/version`);
+      if (version === syncedVersion) return;
+      // 입력 중이면 쓰던 내용이 사라지지 않게 바로 덮어쓰지 않고 안내만 표시
+      if (editingSinceRender || document.activeElement?.matches?.('#app input:not([type=checkbox]):not([type=radio]), #app textarea')) { showSyncBanner(); return; }
+      state.remoteRender = true;
+      render();
+    } catch { /* 일시적 오류는 다음 확인 때 재시도 */ }
+  }, 6000);
+}
+function showSyncBanner() {
+  if (document.getElementById('syncBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'syncBanner';
+  banner.className = 'sync-banner';
+  banner.setAttribute('role', 'status');
+  banner.innerHTML = '<span>다른 멤버가 내용을 바꿨어요. 입력을 마친 뒤 반영해주세요.</span><button type="button" class="small">지금 반영</button>';
+  banner.querySelector('button').onclick = () => { state.remoteRender = true; render(); };
+  appEl().querySelector('.room-tabs')?.before(banner);
+}
+document.addEventListener('input', event => { if (event.target.closest?.('#app')) editingSinceRender = true; });
+
 // ---------- 화면 렌더 ----------
 function render() {
   renderUserBox();
+  if (state.view !== 'room') { stopRoomSync(); state.roomSummary = null; }
   if (state.view === 'loading') {
-    appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
+    appEl().innerHTML = skeletonCard(3);
   } else if (state.view === 'auth') {
     renderAuth();
   } else if (state.view === 'rooms') {
@@ -165,7 +205,7 @@ function renderAuth() {
 
 // ---------- 방 목록 화면 ----------
 async function renderRoomList() {
-  appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
+  appEl().innerHTML = skeletonCard(4);
   let rooms = [], deletedRooms = [];
   try {
     const data = await api('/rooms/mine');
@@ -213,7 +253,7 @@ async function renderRoomList() {
   trash.querySelectorAll('[data-restore-room]').forEach(button => { button.onclick = async () => {
     button.disabled = true;
     try { await api(`/rooms/${button.dataset.restoreRoom}/restore`, {method:'POST',body:{}}); render(); }
-    catch(error) { alert(error.message); button.disabled = false; }
+    catch(error) { showToast(error.message, 'error'); button.disabled = false; }
   }; });
   loadKakaoPanel(el('#kakaoSocialPanel'));
   el('#createRoomBtn').onclick = async () => {
@@ -223,7 +263,7 @@ async function renderRoomList() {
       state.roomId = roomId;
       state.view = 'room';
       render();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   el('#joinRoomBtn').onclick = async () => {
@@ -277,7 +317,7 @@ function restoreRoomView(snapshot) {
 
 async function renderRoomDetail() {
   const snapshot = captureRoomView();
-  if (!snapshot) appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
+  if (!snapshot) appEl().innerHTML = skeletonCard(5);
   let data;
   try {
     data = await api(`/rooms/${state.roomId}`);
@@ -292,6 +332,12 @@ async function renderRoomDetail() {
   const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
   const mapKey = data.kakaoMapKey || null;
   state.renderedRoomId = room.id;
+  syncedVersion = data.version;
+  editingSinceRender = false;
+  const remote = state.remoteRender;
+  state.remoteRender = false;
+  const previousSummary = state.roomSummary?.roomId === room.id ? state.roomSummary : null;
+  state.roomSummary = { roomId: room.id, regionId: room.selectedRegion?.id || null };
   const originOptions = data.originOptions || [];
   const originModes = data.originModes || {};
   const originLabel = id => originOptions.find(option => option.id === id)?.label;
@@ -560,7 +606,7 @@ async function renderRoomDetail() {
     const title = await confirmAction('삭제하면 모든 멤버에게서 숨겨집니다. 기록은 보존되며 방 목록에서 복구할 수 있어요. 방 이름을 정확히 입력하세요: ' + room.title, true);
     if (title === null) return;
     try { await api(`/rooms/${room.id}/delete`, {method:'POST',body:{title}}); state.view='rooms'; state.roomId=null; render(); }
-    catch(error) { alert(error.message); }
+    catch(error) { showToast(error.message, 'error'); }
   };
 
   el('#copyInviteBtn').onclick = () => {
@@ -573,12 +619,13 @@ async function renderRoomDetail() {
   if (isHost) {
     const editBtn = el('#editTitleBtn');
     if (editBtn) editBtn.onclick = async () => {
-      const newTitle = prompt('새 방제를 입력하세요', room.title);
-      if (newTitle && newTitle.trim()) {
+      const newTitle = await showPrompt({ title: '방제 수정', message: '새 방제를 입력하세요', defaultValue: room.title, maxlength: 30 });
+      if (newTitle) {
         try {
-          await api(`/rooms/${room.id}/title`, { method: 'POST', body: { title: newTitle.trim() } });
+          await api(`/rooms/${room.id}/title`, { method: 'POST', body: { title: newTitle } });
+          showToast('방제를 바꿨어요.', 'success');
           render();
-        } catch (e) { alert(e.message); }
+        } catch (e) { showToast(e.message, 'error'); }
       }
     };
   }
@@ -591,8 +638,9 @@ async function renderRoomDetail() {
   el('#saveAvailBtn').onclick = async () => {
     try {
       await api(`/rooms/${room.id}/availability`, { method: 'POST', body: { dates: Array.from(localSelectedDates) } });
+      showToast('가능한 날짜를 저장했어요.', 'success');
       render();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   const dresscodeToggle = el('#dresscodeToggle');
@@ -601,22 +649,24 @@ async function renderRoomDetail() {
     try {
       await api(`/rooms/${room.id}/dresscode-settings`, { method: 'POST', body: { enabled: dresscodeToggle.checked } });
       render();
-    } catch (e) { alert(e.message); dresscodeToggle.checked = !dresscodeToggle.checked; dresscodeToggle.disabled = false; }
+    } catch (e) { showToast(e.message, 'error'); dresscodeToggle.checked = !dresscodeToggle.checked; dresscodeToggle.disabled = false; }
   };
   const drawDresscodeBtn = el('#drawDresscodeBtn');
   if (drawDresscodeBtn) drawDresscodeBtn.onclick = async () => {
     drawDresscodeBtn.disabled = true;
     try {
-      await api(`/rooms/${room.id}/draw-dresscode`, { method: 'POST', body: {} });
+      const { dresscode } = await api(`/rooms/${room.id}/draw-dresscode`, { method: 'POST', body: {} });
+      await runDrawAnimation({ label: '👗 드레스코드를 뽑는 중…', pool: tripMembers.map(m => m.dresscode).filter(Boolean), final: dresscode, duration: 2000 });
       render();
-    } catch (e) { alert(e.message); drawDresscodeBtn.disabled = false; }
+    } catch (e) { showToast(e.message, 'error'); drawDresscodeBtn.disabled = false; }
   };
   if (el('#saveDresscodeBtn')) el('#saveDresscodeBtn').onclick = async () => {
     const text = el('#dresscodeInput').value.trim();
     try {
       await api(`/rooms/${room.id}/dresscode`, { method: 'POST', body: { text } });
+      showToast('컨셉을 저장했어요.', 'success');
       render();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   if (isHost) {
@@ -634,9 +684,9 @@ async function renderRoomDetail() {
           method: 'POST',
           body: { travelerCount, transportMode, vehicleCount },
         });
-        if (result.notice) alert(result.notice);
+        if (result.notice) showToast(result.notice);
         render();
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message, 'error'); }
     };
   }
 
@@ -645,7 +695,7 @@ async function renderRoomDetail() {
       const checked = [...document.querySelectorAll('#preferenceGrid input:checked')];
       if (checked.length > 3) {
         input.checked = false;
-        alert('여행 취향은 최대 3개까지 선택할 수 있어요.');
+        showToast('여행 취향은 최대 3개까지 선택할 수 있어요.', 'error');
       }
       input.closest('.preference-option').classList.toggle('selected', input.checked);
     };
@@ -656,8 +706,9 @@ async function renderRoomDetail() {
     const customPreference = el('#customPreferenceInput').value.trim();
     try {
       await api(`/rooms/${room.id}/preferences`, { method: 'POST', body: { preferences, customPreference } });
+      showToast('취향을 저장했어요.', 'success');
       render();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   if (isHost) {
@@ -665,21 +716,30 @@ async function renderRoomDetail() {
     if (confirmBtn) confirmBtn.onclick = async () => {
       const date = el('#finalDateSelect').value;
       const nights = Number(el('#tripNightsSelect').value);
-      if (!date) { alert('날짜를 선택해주세요.'); return; }
+      if (!date) { showToast('날짜를 선택해주세요.', 'error'); return; }
       try {
         await api(`/rooms/${room.id}/select-date`, { method: 'POST', body: { date, nights } });
         render();
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message, 'error'); }
     };
     const drawBtn = el('#drawBtn');
     if (drawBtn) drawBtn.onclick = async () => {
       if (!await confirmAction(room.dresscodeEnabled ? '여행지와 드레스코드를 랜덤으로 추첨할까요?' : '여행지를 랜덤으로 추첨할까요?')) return;
       try {
-        await api(`/rooms/${room.id}/draw`, { method: 'POST' });
+        const names = await regionNames();
+        const result = await api(`/rooms/${room.id}/draw`, { method: 'POST' });
+        await runDrawAnimation({ pool: names, final: result.region.name, subPool: tripMembers.map(m => m.dresscode).filter(Boolean), subFinal: result.dresscode });
         roomTabState.delete(room.id);
+        state.roomSummary = { roomId: room.id, regionId: result.region.id }; // 내가 뽑은 결과는 다시 연출하지 않음
         render();
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message, 'error'); }
     };
+  }
+
+  startRoomSync(room.id);
+  // 다른 멤버(방장)가 여행지를 정했으면 같은 추첨 연출로 결과를 보여줌
+  if (remote && previousSummary && room.selectedRegion && previousSummary.regionId !== room.selectedRegion.id) {
+    regionNames().then(names => runDrawAnimation({ label: '🎉 여행지가 정해졌어요!', pool: names, final: room.selectedRegion.name, subFinal: room.selectedDresscode, duration: 1800 }));
   }
 
   bindMemberManagement(room, members);
@@ -966,6 +1026,7 @@ function renderCalendar(tally, bestDates, selectedDate, selectedEndDate, votersB
     // 확정 가능성이 가장 높은 날은 색 대신 숫자 위 '유력!' 글씨로 표시
     cell.innerHTML = `${isBest ? '<span class="best-label">유력!</span>' : ''}<span>${d}</span>${count ? `<button type="button" class="count" aria-label="${month + 1}월 ${d}일 가능한 사람 보기">${count}명</button>` : ''}`;
     cell.onclick = () => {
+      editingSinceRender = true; // 저장 전 날짜 선택이 실시간 반영으로 사라지지 않게
       if (localSelectedDates.has(dateStr)) localSelectedDates.delete(dateStr);
       else localSelectedDates.add(dateStr);
       cell.classList.toggle('selected');

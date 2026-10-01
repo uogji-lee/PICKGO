@@ -11,7 +11,8 @@ test('방 화면은 여행(준비·코스·정산·준비물)과 멤버 관리·
     const root = { innerHTML: '' };
     const room = { id: 10, activeTripId: 1, trip: { id: 1, title: '가을 여행' }, status, title: '테스트 모임', inviteCode: 'TEST12', selectedRegion: { name: '테스트 여행지' }, tripNights: 1 };
     const context = vm.createContext({
-      document: { getElementById: () => root, querySelector: () => null },
+      document: { getElementById: () => root, querySelector: () => null, addEventListener() {} },
+      skeletonCard: () => '',
       fetch: async () => ({ ok: true, json: async () => ({ room, members: [], tally: {}, bestDates: [], preferenceOptions: [], isHost: false }) }),
       bindRoomTabs: () => { throw new Error('tabs-initialized'); },
     });

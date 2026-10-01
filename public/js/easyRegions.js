@@ -188,7 +188,7 @@ async function loadEasyRegions(room, isHost, tripMembers = [], mapKey = null) {
         await api(`/rooms/${room.id}/choose-region`, { method: 'POST', body: { regionId: button.dataset.chooseRegion } });
         roomTabState.delete(room.id);
         render();
-      } catch (error) { alert(error.message); button.disabled = false; }
+      } catch (error) { showToast(error.message, 'error'); button.disabled = false; }
     };
   });
 }

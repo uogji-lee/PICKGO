@@ -250,6 +250,23 @@ function isMember(roomId, userId) {
   return !!db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ? AND active = 1').get(roomId, userId);
 }
 
+// 방 화면에 보이는 상태가 바뀌었는지 비교하기 위한 버전 값 (다른 멤버의 변경을 실시간으로 반영)
+function roomVersion(roomId) {
+  const trips = 'SELECT id FROM journeys WHERE room_id = ?';
+  const parts = [
+    db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId),
+    db.prepare(`SELECT user_id, role, active, availability_json, dresscode, preferences_json, custom_preference,
+      origin_id, origin_mode, origin_lat, origin_lng, origin_label FROM room_members WHERE room_id = ? ORDER BY user_id`).all(roomId),
+    db.prepare('SELECT id, title, participant_ids, status, notes FROM journeys WHERE room_id = ? ORDER BY id').all(roomId),
+    ...['trip_payments', 'trip_expenses', 'trip_refunds'].map(table => db.prepare(`SELECT count(*) AS c, max(id) AS m, sum(voided) AS v FROM ${table} WHERE room_id = ?`).get(roomId)),
+    db.prepare('SELECT count(*) AS c, max(id) AS m FROM dues_nudges WHERE room_id = ?').get(roomId),
+    db.prepare('SELECT count(*) AS c, sum(deleted) AS d, max(id) AS m FROM lodging_candidates WHERE room_id = ?').get(roomId),
+    db.prepare(`SELECT group_concat(trip_id || ':' || user_id || ':' || candidate_id) AS v FROM lodging_votes WHERE trip_id IN (${trips})`).get(roomId),
+    db.prepare(`SELECT count(*) AS c, sum(checked) AS k, sum(deleted) AS d, max(id) AS m, group_concat(assignee_id) AS a FROM packing_items WHERE trip_id IN (${trips})`).get(roomId),
+  ];
+  return require('crypto').createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 16);
+}
+
 function tripRoster(room) {
   const trip = room.active_trip_id && db.prepare('SELECT participant_ids FROM journeys WHERE id=? AND room_id=?').get(room.active_trip_id, room.id);
   return trip ? JSON.parse(trip.participant_ids) : null;
@@ -340,12 +357,23 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     bestDates,
     bestCount,
     isHost: room.host_user_id === req.user.id,
+    version: roomVersion(room.id),
     preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label })),
     originOptions: reachability.ORIGINS.map(({ id, group, label }) => ({ id, group, label })),
     originModes: reachability.MODES,
     kakaoMapKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
   });
 });
+
+app.get('/api/rooms/:id/version', auth, (req, res) => {
+  const room = getRoomOr404(req, res);
+  if (!room) return;
+  if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
+  res.json({ version: roomVersion(room.id) });
+});
+
+// 추첨 연출에 쓰는 여행지 이름 목록
+app.get('/api/regions', (req, res) => res.json({ regions: regions.map(region => ({ id: region.id, name: region.name })) }));
 
 app.post('/api/rooms/:id/title', auth, (req, res) => {
   const room = getRoomOr404(req, res);
