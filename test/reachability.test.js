@@ -85,8 +85,9 @@ test('멤버가 출발지를 저장하면 참석자 기준으로 순위를 계�
   assert.equal((await request(`${path}/origin`, users[0], { originId: 'nowhere', mode: 'car' })).status, 400);
   assert.equal((await request(`${path}/origin`, users[0], { originId: 'seoul-center', mode: 'plane' })).status, 400);
   assert.equal((await request(`${path}/origin`, users[0], { originId: 'seoul-center', mode: 'public' })).status, 200);
-  const located = await request(`${path}/origin`, users[1], { lat: 35.16, lng: 129.06, mode: 'car' });
-  assert.equal(located.data.originId, 'bs-seomyeon');
+  assert.equal((await request(`${path}/origin`, users[1], { lat: 40.71, lng: -74.0, mode: 'car' })).status, 400);
+  const located = await request(`${path}/origin`, users[1], { lat: 35.157712, lng: 129.059213, label: '서면역', mode: 'car' });
+  assert.deepEqual(located.data.origin, { lat: 35.1577, lng: 129.0592, label: '서면역' });
   await request(`${path}/origin`, users[2], { originId: 'jj-jeju', mode: 'car' });
 
   const easy = await request(`${path}/easy-regions`, users[1]);
@@ -97,7 +98,11 @@ test('멤버가 출발지를 저장하면 참석자 기준으로 순위를 계�
   assert.ok(easy.data.ranking.every(item => item.legs.every(leg => leg.userId !== users[2].id)));
 
   const detail = await request(path, users[0]);
-  assert.equal(detail.data.members.find(member => member.id === users[1].id).originId, 'bs-seomyeon');
+  const busan = detail.data.members.find(member => member.id === users[1].id);
+  assert.equal(busan.originId, 'bs-seomyeon');
+  assert.equal(busan.origin.label, '서면역');
+  assert.ok(easy.data.midpoint.label.endsWith('근처'));
+  assert.ok(easy.data.ranking.every(item => Number.isFinite(item.distanceFromMidpointKm)));
   assert.ok(detail.data.originOptions.length > 40);
 
   const target = easy.data.ranking[0].region.id;
@@ -108,4 +113,17 @@ test('멤버가 출발지를 저장하면 참석자 기준으로 순위를 계�
   const after = await request(path, users[0]);
   assert.equal(after.data.room.status, 'decided');
   assert.equal(after.data.room.selectedRegion.id, target);
+});
+
+test('중간지점은 참석자 위치의 평균이고, 추천 여행지는 그 근처에서 이동 시간이 공평한 순서다', () => {
+  const result = reachability.recommendNearMidpoint([
+    { userId: 1, nickname: '서울', lat: 37.5665, lng: 126.978, mode: 'public' },
+    { userId: 2, nickname: '부산', lat: 35.1577, lng: 129.0592, mode: 'car' },
+  ], regions, 3);
+  assert.ok(Math.abs(result.midpoint.lat - 36.3621) < 0.001 && Math.abs(result.midpoint.lng - 128.0186) < 0.001);
+  assert.equal(result.ranking.length, 3);
+  // 양 끝(서울·부산)이 아닌 중간 지역만 추천
+  assert.ok(result.ranking.every(item => !item.region.id.startsWith('seoul') && !item.region.id.startsWith('busan')));
+  for (let index = 1; index < result.ranking.length; index++) assert.ok(result.ranking[index - 1].score <= result.ranking[index].score);
+  assert.deepEqual(reachability.recommendNearMidpoint([{ userId: 3, nickname: '미정', mode: 'car' }], regions), { midpoint: null, ranking: [] });
 });

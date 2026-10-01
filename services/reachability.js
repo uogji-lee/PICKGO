@@ -78,26 +78,64 @@ function estimateTrip(from, to, mode) {
   };
 }
 
-// travelers: [{ userId, nickname, originId, mode }] — 출발지·이동수단이 모두 있는 멤버만 계산에 포함
+// 국내(제주 포함) 좌표만 출발지로 허용
+function isKoreanCoordinate(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 33 && lat <= 38.7 && lng >= 124.5 && lng <= 131.9;
+}
+
+// 지도에서 고른 정확한 좌표가 있으면 우선, 없으면 예전 방식의 출발 생활권 좌표 사용
+function pointOf(traveler) {
+  if (isKoreanCoordinate(traveler.lat, traveler.lng)) return { lat: traveler.lat, lng: traveler.lng };
+  return originById.get(traveler.originId) || null;
+}
+const readyTravelers = travelers => travelers.filter(traveler => pointOf(traveler) && normalizeMode(traveler.mode));
+
+function scoreRegion(region, ready) {
+  const [lat, lng] = REGION_COORDS[region.id];
+  const legs = ready.map(traveler => ({
+    userId: traveler.userId,
+    nickname: traveler.nickname,
+    mode: traveler.mode,
+    ...estimateTrip(pointOf(traveler), { lat, lng }, traveler.mode),
+  }));
+  const minutes = legs.map(leg => leg.minutes);
+  const averageMinutes = Math.round(minutes.reduce((sum, value) => sum + value, 0) / minutes.length);
+  const maxMinutes = Math.max(...minutes);
+  const minMinutes = Math.min(...minutes);
+  // 평균이 짧아도 한 명만 유독 멀면 불공평하므로 가장 오래 걸리는 사람의 시간도 함께 반영
+  const score = Math.round(averageMinutes * 0.7 + maxMinutes * 0.3);
+  return { region: { id: region.id, name: region.name }, averageMinutes, maxMinutes, spreadMinutes: maxMinutes - minMinutes, score, legs };
+}
+const byScore = (a, b) => a.score - b.score || a.spreadMinutes - b.spreadMinutes || a.region.name.localeCompare(b.region.name, 'ko');
+
+// 참석자 출발 위치의 중간지점(좌표 평균)을 구하고, 그 근처 여행지를 이동 시간 공평성으로 정렬
+function recommendNearMidpoint(travelers, regions, count = 5) {
+  const ready = readyTravelers(travelers);
+  if (!ready.length) return { midpoint: null, ranking: [] };
+  const points = ready.map(pointOf);
+  const midpoint = {
+    lat: points.reduce((sum, point) => sum + point.lat, 0) / points.length,
+    lng: points.reduce((sum, point) => sum + point.lng, 0) / points.length,
+  };
+  const area = nearest(ORIGINS, midpoint);
+  const ranking = regions.filter(region => REGION_COORDS[region.id])
+    .map(region => ({ region, km: distanceKm(midpoint, { lat: REGION_COORDS[region.id][0], lng: REGION_COORDS[region.id][1] }) }))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, count + 3)
+    .map(({ region, km }) => ({ ...scoreRegion(region, ready), distanceFromMidpointKm: Math.round(km) }))
+    .sort(byScore)
+    .slice(0, count);
+  return {
+    midpoint: { lat: Number(midpoint.lat.toFixed(4)), lng: Number(midpoint.lng.toFixed(4)), label: `${area.label} 근처` },
+    ranking,
+  };
+}
+
+// travelers: [{ userId, nickname, lat?, lng?, originId?, mode }] — 출발지·이동수단이 모두 있는 멤버만 계산에 포함
 function rankRegions(travelers, regions) {
-  const ready = travelers.filter(traveler => originById.has(traveler.originId) && normalizeMode(traveler.mode));
+  const ready = readyTravelers(travelers);
   if (!ready.length) return [];
-  return regions.filter(region => REGION_COORDS[region.id]).map(region => {
-    const [lat, lng] = REGION_COORDS[region.id];
-    const legs = ready.map(traveler => ({
-      userId: traveler.userId,
-      nickname: traveler.nickname,
-      mode: traveler.mode,
-      ...estimateTrip(originById.get(traveler.originId), { lat, lng }, traveler.mode),
-    }));
-    const minutes = legs.map(leg => leg.minutes);
-    const averageMinutes = Math.round(minutes.reduce((sum, value) => sum + value, 0) / minutes.length);
-    const maxMinutes = Math.max(...minutes);
-    const minMinutes = Math.min(...minutes);
-    // 평균이 짧아도 한 명만 유독 멀면 불공평하므로 가장 오래 걸리는 사람의 시간도 함께 반영
-    const score = Math.round(averageMinutes * 0.7 + maxMinutes * 0.3);
-    return { region: { id: region.id, name: region.name }, averageMinutes, maxMinutes, spreadMinutes: maxMinutes - minMinutes, score, legs };
-  }).sort((a, b) => a.score - b.score || a.spreadMinutes - b.spreadMinutes || a.region.name.localeCompare(b.region.name, 'ko'));
+  return regions.filter(region => REGION_COORDS[region.id]).map(region => scoreRegion(region, ready)).sort(byScore);
 }
 
 function nearestOriginId(lat, lng) {
@@ -111,9 +149,11 @@ module.exports = {
   ORIGINS,
   distanceKm,
   estimateTrip,
+  isKoreanCoordinate,
   nearestOriginId,
   normalizeMode,
   normalizeOriginId,
   originById,
   rankRegions,
+  recommendNearMidpoint,
 };

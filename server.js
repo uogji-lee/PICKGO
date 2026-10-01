@@ -267,7 +267,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference, m.origin_id, m.origin_mode
+    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng, m.origin_label
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).map(m => ({
@@ -282,6 +282,9 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     customPreferenceKeywords: interpretCustomPreference(m.custom_preference),
     originId: reachability.normalizeOriginId(m.origin_id),
     originMode: reachability.normalizeMode(m.origin_mode),
+    origin: reachability.isKoreanCoordinate(m.origin_lat, m.origin_lng)
+      ? { lat: m.origin_lat, lng: m.origin_lng, label: m.origin_label || '지도에서 고른 위치' }
+      : null,
   }));
 
   // 날짜별 가능 인원 집계
@@ -338,6 +341,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     preferenceOptions: PREFERENCES.map(({ id, label }) => ({ id, label })),
     originOptions: reachability.ORIGINS.map(({ id, group, label }) => ({ id, group, label })),
     originModes: reachability.MODES,
+    kakaoMapKey: process.env.KAKAO_JAVASCRIPT_KEY || null,
   });
 });
 
@@ -396,15 +400,21 @@ app.post('/api/rooms/:id/origin', auth, (req, res) => {
   const room = getRoomOr404(req, res);
   if (!room) return;
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
-  const { originId, mode, lat, lng } = req.body || {};
-  // 현재 위치는 가장 가까운 출발 생활권으로만 바꿔 저장하고 정확한 좌표는 보관하지 않음
-  const resolvedOriginId = lat !== undefined || lng !== undefined
-    ? reachability.nearestOriginId(Number(lat), Number(lng))
-    : reachability.normalizeOriginId(originId);
+  const { originId, mode, label } = req.body || {};
   const cleanMode = reachability.normalizeMode(mode);
-  if (!resolvedOriginId) return res.status(400).json({ error: '출발 지역을 목록에서 선택해주세요. 현재 위치가 국내가 아니면 직접 선택해야 합니다.' });
   if (!cleanMode) return res.status(400).json({ error: '이동수단은 자가용 또는 대중교통 중에서 선택해주세요.' });
-  db.prepare('UPDATE room_members SET origin_id = ?, origin_mode = ? WHERE room_id = ? AND user_id = ?')
+  // 카카오맵에서 고른 위치(좌표+이름)는 방 멤버에게 출발지로 공유됨. 약 10m 단위로 반올림해 저장
+  if (req.body?.lat !== undefined || req.body?.lng !== undefined) {
+    const lat = Number(req.body.lat), lng = Number(req.body.lng);
+    if (!reachability.isKoreanCoordinate(lat, lng)) return res.status(400).json({ error: '국내 위치를 지도에서 선택해주세요.' });
+    const cleanLabel = String(label || '').trim().slice(0, 60) || '지도에서 고른 위치';
+    db.prepare('UPDATE room_members SET origin_lat = ?, origin_lng = ?, origin_label = ?, origin_id = ?, origin_mode = ? WHERE room_id = ? AND user_id = ?')
+      .run(Number(lat.toFixed(4)), Number(lng.toFixed(4)), cleanLabel, reachability.nearestOriginId(lat, lng), cleanMode, room.id, req.user.id);
+    return res.json({ ok: true, origin: { lat: Number(lat.toFixed(4)), lng: Number(lng.toFixed(4)), label: cleanLabel }, mode: cleanMode });
+  }
+  const resolvedOriginId = reachability.normalizeOriginId(originId);
+  if (!resolvedOriginId) return res.status(400).json({ error: '출발 지역을 선택해주세요.' });
+  db.prepare('UPDATE room_members SET origin_id = ?, origin_mode = ?, origin_lat = NULL, origin_lng = NULL, origin_label = NULL WHERE room_id = ? AND user_id = ?')
     .run(resolvedOriginId, cleanMode, room.id, req.user.id);
   res.json({ ok: true, originId: resolvedOriginId, mode: cleanMode });
 });
@@ -415,15 +425,17 @@ app.get('/api/rooms/:id/easy-regions', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
   const roster = tripRoster(room);
   const travelers = db.prepare(`
-    SELECT u.id, u.nickname, m.origin_id, m.origin_mode
+    SELECT u.id, u.nickname, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).filter(member => !roster || roster.includes(member.id))
-    .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, mode: member.origin_mode }));
-  const ranking = reachability.rankRegions(travelers, regions);
+    .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, lat: member.origin_lat, lng: member.origin_lng, mode: member.origin_mode }));
+  // 참석자 출발 위치의 중간지점 근처 여행지를 이동 시간 공평성 순으로 추천
+  const { midpoint, ranking } = reachability.recommendNearMidpoint(travelers, regions, Math.min(Math.max(Number(req.query.limit) || 5, 1), 10));
   const readyIds = new Set(ranking[0]?.legs.map(leg => leg.userId) || []);
   res.json({
-    ranking: ranking.slice(0, Math.min(Math.max(Number(req.query.limit) || 5, 1), 10)),
+    midpoint,
+    ranking,
     readyCount: readyIds.size,
     travelerCount: travelers.length,
     missing: travelers.filter(traveler => !readyIds.has(traveler.userId)).map(traveler => traveler.nickname),

@@ -1,5 +1,8 @@
 // 숙소 후보 링크 + 참석자 투표 (에어비앤비처럼 검색이 어려운 숙소도 링크로 후보 등록)
-function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }) {
+const linkPreview = require('./linkPreview');
+
+function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }, options = {}) {
+  const fetchPreview = options.fetchPreview || linkPreview.fetchLinkPreview;
   const fail = (message, status = 400) => Object.assign(new Error(message), { status });
   const handle = handler => (req, res) => {
     try { res.json(handler(req)); }
@@ -21,6 +24,16 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }) 
     if (!candidate) throw fail('숙소 후보를 찾을 수 없습니다.', 404);
     return candidate;
   };
+  const count = (value, max) => {
+    if (value === undefined || value === null || value === '') return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0 || number > max) throw fail(`숫자는 0~${max} 사이로 입력해주세요.`);
+    return Math.round(number * 2) / 2; // 욕실 1.5개 같은 값 허용
+  };
+  const cleanImage = value => {
+    const text = String(value || '').trim();
+    return text.startsWith('https://') && text.length <= 1000 ? text : null;
+  };
   function cleanUrl(value) {
     let url;
     try { url = new URL(String(value || '').trim()); } catch { throw fail('숙소 링크를 http(s) 주소로 입력해주세요.'); }
@@ -30,16 +43,32 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }) 
 
   app.get('/api/rooms/:id/lodging', auth, handle(req => {
     const { room, isHost, isParticipant } = context(req);
-    const votes = db.prepare('SELECT candidate_id, user_id FROM lodging_votes WHERE trip_id = ?').all(room.active_trip_id);
+    const votes = db.prepare(`SELECT v.candidate_id, v.user_id, u.nickname FROM lodging_votes v JOIN users u ON u.id = v.user_id
+      WHERE v.trip_id = ? ORDER BY u.nickname`).all(room.active_trip_id);
     const candidates = db.prepare(`SELECT c.*, u.nickname AS creator FROM lodging_candidates c JOIN users u ON u.id = c.created_by
       WHERE c.trip_id = ? AND c.deleted = 0 ORDER BY c.id`).all(room.active_trip_id).map(candidate => ({
       id: candidate.id, name: candidate.name, url: candidate.url, memo: candidate.memo, creator: candidate.creator,
+      imageUrl: candidate.image_url, bedrooms: candidate.bedrooms, beds: candidate.beds, bathrooms: candidate.bathrooms, capacity: candidate.capacity,
       voterIds: votes.filter(vote => vote.candidate_id === candidate.id).map(vote => vote.user_id),
+      voters: votes.filter(vote => vote.candidate_id === candidate.id).map(vote => vote.nickname),
       canDelete: isHost || candidate.created_by === req.user.id,
       selected: Boolean(room.accommodation_url) && room.accommodation_url === candidate.url,
     }));
-    return { candidates, myVote: votes.find(vote => vote.user_id === req.user.id)?.candidate_id || null, canEdit: isHost || isParticipant, isHost };
+    return { candidates, myVote: votes.find(vote => vote.user_id === req.user.id)?.candidate_id || null, canEdit: isHost || isParticipant, isHost,
+      voterCount: new Set(votes.map(vote => vote.user_id)).size, participantCount: (tripRoster(room) || []).length };
   }));
+
+  // 링크를 붙여넣으면 대표사진·제목·방 정보를 미리 읽어 등록 폼을 채움
+  app.post('/api/rooms/:id/lodging/preview', auth, async (req, res) => {
+    let url;
+    try {
+      const { isHost, isParticipant } = context(req);
+      if (!isHost && !isParticipant) throw fail('이번 여행 참석자만 숙소 후보를 올릴 수 있어요.', 403);
+      url = cleanUrl(req.body?.url);
+    } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+    try { res.json({ url, ...(await fetchPreview(url)) }); }
+    catch { res.json({ url, title: '', image: null, suggestedName: '', features: {}, notice: '이 링크에서 사진과 정보를 읽지 못했어요. 직접 입력해주세요.' }); }
+  });
 
   app.post('/api/rooms/:id/lodging', auth, handle(req => {
     const { room, isHost, isParticipant } = context(req);
@@ -48,9 +77,10 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }) 
     if (!name || name.length > 60) throw fail('숙소 이름을 1~60자로 입력해주세요.');
     const memo = String(req.body?.memo || '').trim().slice(0, 100);
     const url = cleanUrl(req.body?.url);
+    const features = [count(req.body?.bedrooms, 30), count(req.body?.beds, 50), count(req.body?.bathrooms, 30), count(req.body?.capacity, 60)];
     if (db.prepare('SELECT count(*) AS n FROM lodging_candidates WHERE trip_id = ? AND deleted = 0').get(room.active_trip_id).n >= 20) throw fail('숙소 후보는 20개까지 올릴 수 있어요.');
-    const id = db.prepare('INSERT INTO lodging_candidates(room_id,trip_id,name,url,memo,created_by) VALUES (?,?,?,?,?,?)')
-      .run(room.id, room.active_trip_id, name, url, memo, req.user.id).lastInsertRowid;
+    const id = db.prepare('INSERT INTO lodging_candidates(room_id,trip_id,name,url,memo,created_by,image_url,bedrooms,beds,bathrooms,capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .run(room.id, room.active_trip_id, name, url, memo, req.user.id, cleanImage(req.body?.imageUrl), ...features).lastInsertRowid;
     return { ok: true, id };
   }));
 

@@ -253,8 +253,31 @@ async function renderRoomList() {
 let calendarCursor = null; // {year, month} 0-indexed month
 let localSelectedDates = new Set();
 
+// 같은 방을 다시 그릴 때(저장 버튼 등) 화면을 비우지 않고, 스크롤 위치와 카드 접힘 상태를 이어서 보여줌
+const LIVE_SECTIONS = ['tripManagement', 'roomFinance', 'expenseOverview', 'packingContent', 'lodgingPanel', 'easyRegions', 'kakaoSocialPanel', 'pastTrips'];
+function captureRoomView() {
+  if (state.renderedRoomId !== state.roomId || !appEl().querySelector('.room-tabs')) return null;
+  return {
+    scrollY: window.scrollY,
+    closed: [...appEl().querySelectorAll('details')].filter(item => !item.open).map(item => item.querySelector('summary')?.textContent.trim()).filter(Boolean),
+    sections: Object.fromEntries(LIVE_SECTIONS.map(id => [id, document.getElementById(id)?.innerHTML]).filter(([, html]) => html)),
+  };
+}
+function restoreRoomView(snapshot) {
+  if (!snapshot) return;
+  for (const [id, html] of Object.entries(snapshot.sections)) {
+    const target = document.getElementById(id);
+    if (target) target.innerHTML = html; // 새로 불러오기 전까지 이전 내용으로 높이 유지
+  }
+  appEl().querySelectorAll('details').forEach(item => {
+    if (snapshot.closed.includes(item.querySelector('summary')?.textContent.trim())) item.open = false;
+  });
+  window.scrollTo(0, snapshot.scrollY);
+}
+
 async function renderRoomDetail() {
-  appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
+  const snapshot = captureRoomView();
+  if (!snapshot) appEl().innerHTML = `<div class="card">불러오는 중...</div>`;
   let data;
   try {
     data = await api(`/rooms/${state.roomId}`);
@@ -267,6 +290,8 @@ async function renderRoomDetail() {
   }
 
   const { room, members, tally, bestDates, isHost, preferenceOptions } = data;
+  const mapKey = data.kakaoMapKey || null;
+  state.renderedRoomId = room.id;
   const originOptions = data.originOptions || [];
   const originModes = data.originModes || {};
   const originLabel = id => originOptions.find(option => option.id === id)?.label;
@@ -319,17 +344,25 @@ async function renderRoomDetail() {
     <div class="card"><p class="desc">1. 이름·날짜·참석자 → 2. 교통·숙소·취향 → 3. 추첨·코스 생성</p><div id="tripManagement">여행 정보 불러오는 중…</div></div>
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
-      <summary><h2>🧭 출발지 · 가기 쉬운 여행지</h2></summary>
+      <summary><h2>📍 출발지 공유</h2></summary>
       <div class="collapsible-card-content">
-      <p class="desc">각자 출발하는 곳과 이동수단을 저장하면, 모두의 이동 시간을 비교해 가기 쉬운 여행지를 순서대로 보여줘요.</p>
+      <p class="desc">어디서 출발하는지 멤버들과 공유해요. 집 대신 역·동네처럼 대략적인 위치를 골라도 괜찮아요.</p>
       <form id="originForm" class="origin-form">
-        <label>
-          <span>내 출발 지역</span>
-          <select name="originId">
-            <option value="">출발 지역 선택…</option>
-            ${[...new Set(originOptions.map(option => option.group))].map(group => `<optgroup label="${escapeHtml(group)}">${originOptions.filter(option => option.group === group).map(option => `<option value="${escapeHtml(option.id)}" ${me?.originId === option.id ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</optgroup>`).join('')}
-          </select>
-        </label>
+        ${mapKey ? `
+          <div class="origin-search"><input id="originQuery" placeholder="장소·주소 검색 (예: 강남역)" maxlength="60" /><button type="button" class="secondary" id="originSearchBtn">검색</button></div>
+          <ul id="originResults" class="origin-results"></ul>
+          <div id="originMap" class="origin-map" aria-label="출발 위치를 고르는 지도"></div>
+          <p id="originPicked" class="origin-picked">${me?.origin ? `선택한 위치: ${escapeHtml(me.origin.label)}` : '지도를 누르거나 검색해서 출발 위치를 고르세요.'}</p>
+        ` : `
+          <label class="origin-wide">
+            <span>내 출발 지역</span>
+            <select name="originId">
+              <option value="">출발 지역 선택…</option>
+              ${[...new Set(originOptions.map(option => option.group))].map(group => `<optgroup label="${escapeHtml(group)}">${originOptions.filter(option => option.group === group).map(option => `<option value="${escapeHtml(option.id)}" ${!me?.origin && me?.originId === option.id ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</optgroup>`).join('')}
+            </select>
+            <small>카카오 지도 키를 설정하면 지도에서 정확한 위치를 고를 수 있어요.</small>
+          </label>
+        `}
         <label>
           <span>이동수단</span>
           <select name="mode">
@@ -337,16 +370,27 @@ async function renderRoomDetail() {
           </select>
         </label>
         <div class="origin-actions">
-          <button type="button" class="ghost small" id="originLocate">📍 현재 위치로</button>
+          <button type="button" class="ghost small" id="originLocate">📍 내 위치</button>
           <button type="submit" class="secondary">출발지 저장</button>
         </div>
         <span id="originStatus" role="status"></span>
       </form>
       <h3 class="origin-list-title">멤버별 출발지</h3>
       <ul class="origin-list">
-        ${tripMembers.map(m => `<li class="${m.originId ? '' : 'missing'}"><strong>${escapeHtml(m.nickname)}</strong><span>${m.originId ? `${escapeHtml(originLabel(m.originId) || '')} · ${escapeHtml(originModes[m.originMode] || '')}` : '미입력'}</span></li>`).join('')}
+        ${tripMembers.map(m => {
+          const where = m.origin?.label || (m.originId ? originLabel(m.originId) : '');
+          return `<li class="${where ? '' : 'missing'}"><strong>${escapeHtml(m.nickname)}</strong><span>${where ? `${escapeHtml(where)} · ${escapeHtml(originModes[m.originMode] || '')}` : '미입력'}</span></li>`;
+        }).join('')}
       </ul>
-      <div id="easyRegions"></div>
+      </div>
+    </details>
+
+    <details class="card collapsible-card" ${planningSectionsOpen}>
+      <summary><h2>🧭 가기 쉬운 여행지 추천</h2></summary>
+      <div class="collapsible-card-content">
+      <label class="dresscode-toggle"><input type="checkbox" id="easyToggle" /><span>참석자 중간지점 기준으로 추천 보기</span></label>
+      <p class="desc">공유한 출발지의 중간지점을 찾고, 그 근처에서 모두가 가기 공평한 여행지를 보여줘요.</p>
+      <div id="easyRegions" hidden></div>
       </div>
     </details>
 
@@ -499,6 +543,7 @@ async function renderRoomDetail() {
 
   if (el('#drawBtn')) el('#drawControls').append(el('#drawBtn').closest('details'));
   bindRoomTabs(room);
+  restoreRoomView(snapshot);
   el('#backBtn').onclick = () => { state.view = 'rooms'; calendarCursor = null; render(); };
   const deleteButton = el('#deleteRoomBtn');
   if (deleteButton) deleteButton.onclick = async () => {
@@ -632,8 +677,8 @@ async function renderRoomDetail() {
   loadPacking(room);
   loadLodging(room);
   loadPastTrips(room);
-  bindOriginForm(room, isHost);
-  if (room.activeTripId) loadEasyRegions(room, isHost);
+  bindOriginForm(room, isHost, me, tripMembers, mapKey);
+  if (room.activeTripId) bindEasyRegions(room, isHost, tripMembers, mapKey);
   loadKakaoPanel(el('#kakaoSocialPanel'), room);
   if (room.activeTripId && room.status === 'decided') loadRecommendations(room.id);
 }
@@ -659,7 +704,7 @@ function loadKakaoMapsSdk(javascriptKey) {
 
   kakaoMapsLoader = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(javascriptKey)}&autoload=false`;
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(javascriptKey)}&libraries=services&autoload=false`;
     script.onload = () => window.kakao.maps.load(() => resolve(window.kakao.maps));
     script.onerror = () => reject(new Error('카카오 지도 SDK를 불러오지 못했습니다.'));
     document.head.appendChild(script);

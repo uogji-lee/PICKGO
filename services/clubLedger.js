@@ -109,7 +109,7 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
       accommodation_url = NULL, accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?`).run(trip.lastInsertRowid, date || null, nights, participantIds.length, room.id);
     // 새 여행은 지난 여행의 가능 날짜·취향·드레스코드 컨셉·출발지를 이어받지 않음 (지난 값은 종료 시 여행 기록에 보관)
     db.prepare(`UPDATE room_members SET availability_json = '[]', preferences_json = '[]', custom_preference = NULL,
-      dresscode = NULL, origin_id = NULL, origin_mode = NULL WHERE room_id = ?`).run(room.id);
+      dresscode = NULL, origin_id = NULL, origin_mode = NULL, origin_lat = NULL, origin_lng = NULL, origin_label = NULL WHERE room_id = ?`).run(room.id);
     return { ok: true, tripId: trip.lastInsertRowid };
   });
   function saveParticipants(room, trip, ids) {
@@ -172,10 +172,10 @@ function registerClubLedger(db, { route, access, activeMember, members, fail }) 
         tripAdvanced: costs.people.find(item => item.id === person.id).advanced,
       })) };
     // 지난 여행의 멤버 입력값(가능 날짜·취향·컨셉·출발지)을 기록으로 보관
-    const memberInputs = db.prepare('SELECT user_id, availability_json, preferences_json, custom_preference, dresscode, origin_id, origin_mode FROM room_members WHERE room_id = ?')
+    const memberInputs = db.prepare('SELECT user_id, availability_json, preferences_json, custom_preference, dresscode, origin_id, origin_mode, origin_label FROM room_members WHERE room_id = ?')
       .all(room.id).filter(member => ids.includes(member.user_id)).map(member => ({ userId: member.user_id,
         availability: JSON.parse(member.availability_json || '[]'), preferences: JSON.parse(member.preferences_json || '[]'),
-        customPreference: member.custom_preference, dresscode: member.dresscode, originId: member.origin_id, originMode: member.origin_mode }));
+        customPreference: member.custom_preference, dresscode: member.dresscode, originId: member.origin_id, originMode: member.origin_mode, originLabel: member.origin_label }));
     db.prepare("UPDATE journeys SET status = 'completed', plan_json = ?, settlement_json = ?, member_inputs_json = ?, completed_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(planSnapshot(room)), JSON.stringify(settlement), JSON.stringify(memberInputs), trip.id);
     db.prepare('UPDATE rooms SET active_trip_id = NULL WHERE id = ?').run(room.id);

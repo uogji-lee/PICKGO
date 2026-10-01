@@ -63,6 +63,9 @@ module.exports = function migrate(db) {
     add('journeys', 'itinerary_json', 'TEXT');
     add('journeys', 'member_inputs_json', 'TEXT');
     add('rooms', 'accommodation_url', 'TEXT');
+    add('room_members', 'origin_lat', 'REAL');
+    add('room_members', 'origin_lng', 'REAL');
+    add('room_members', 'origin_label', 'TEXT');
     db.exec(`CREATE TABLE IF NOT EXISTS lodging_candidates (
       id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL REFERENCES rooms(id), trip_id INTEGER NOT NULL REFERENCES journeys(id),
       name TEXT NOT NULL, url TEXT NOT NULL, memo TEXT NOT NULL DEFAULT '', created_by INTEGER NOT NULL REFERENCES users(id),
@@ -73,6 +76,11 @@ module.exports = function migrate(db) {
       trip_id INTEGER NOT NULL REFERENCES journeys(id), user_id INTEGER NOT NULL REFERENCES users(id),
       candidate_id INTEGER NOT NULL REFERENCES lodging_candidates(id), PRIMARY KEY(trip_id, user_id)
     );`);
+    add('lodging_candidates', 'image_url', 'TEXT');
+    add('lodging_candidates', 'bedrooms', 'INTEGER');
+    add('lodging_candidates', 'beds', 'INTEGER');
+    add('lodging_candidates', 'bathrooms', 'REAL');
+    add('lodging_candidates', 'capacity', 'INTEGER');
     add('journeys', 'notes', "TEXT NOT NULL DEFAULT ''");
     db.exec(`CREATE TABLE IF NOT EXISTS kakao_signups (
       token_hash TEXT PRIMARY KEY, kakao_id TEXT NOT NULL, tokens TEXT NOT NULL,

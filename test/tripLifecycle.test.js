@@ -109,3 +109,29 @@ test('여행을 끝내면 입력값은 기록에 보관되고, 새 여행은 빈
   assert.deepEqual([me.availability, me.customPreference, me.originId], [[], '', null]);
   assert.equal((await request(`${path}/past-trips`, users[1])).data.trips.length, 1);
 });
+
+test('링크 미리보기는 대표사진·방 정보를 채우고, 후보에는 투표자 이름이 함께 내려간다', async () => {
+  const preview = require('../services/linkPreview');
+  const parsed = preview.parsePreview(`<html><head><meta property="og:title" content="집 · 강릉시 · ★4.98 · 침실 3개 · 침대 3개 · 욕실 2개"/>
+    <meta property="og:image" content="https://a0.muscache.com/im/pictures/a.jpeg?im_w=720&amp;width=720"/></head></html>`, 'https://www.airbnb.co.kr/rooms/1');
+  assert.deepEqual(parsed.features, { bedrooms: 3, beds: 3, bathrooms: 2, capacity: null });
+  assert.equal(parsed.image, 'https://a0.muscache.com/im/pictures/a.jpeg?im_w=720&width=720');
+  assert.equal(parsed.suggestedName, '집 · 강릉시');
+  assert.equal(preview.parsePreview('<meta property="og:image" content="http://insecure.example/a.jpg">', 'https://x.example').image, null);
+  for (const address of ['127.0.0.1', '10.1.2.3', '169.254.169.254', '192.168.0.1', '172.20.0.1', '::1', 'fd00::1', '::ffff:127.0.0.1']) assert.ok(preview.isPrivateAddress(address), address);
+  assert.ok(!preview.isPrivateAddress('13.125.53.162'));
+
+  const { path } = await setup();
+  assert.equal((await request(`${path}/lodging/preview`, users[2], { url: 'https://www.airbnb.co.kr/rooms/1' })).status, 403);
+  assert.equal((await request(`${path}/lodging/preview`, users[1], { url: 'ftp://example.com/a' })).status, 400);
+  const created = await request(`${path}/lodging`, users[1], { name: '바다뷰 독채', url: 'https://www.airbnb.co.kr/rooms/1', imageUrl: 'https://a0.muscache.com/a.jpeg', bedrooms: 3, beds: 3, bathrooms: 1.5, capacity: 6 });
+  assert.equal(created.status, 200);
+  assert.equal((await request(`${path}/lodging`, users[1], { name: '이상한 값', url: 'https://example.com/b', bedrooms: -1 })).status, 400);
+  await request(`${path}/lodging/${created.data.id}/vote`, users[0], {});
+  await request(`${path}/lodging/${created.data.id}/vote`, users[1], {});
+  const list = (await request(`${path}/lodging`, users[1])).data;
+  const item = list.candidates[0];
+  assert.deepEqual([item.imageUrl, item.bedrooms, item.beds, item.bathrooms, item.capacity], ['https://a0.muscache.com/a.jpeg', 3, 3, 1.5, 6]);
+  assert.deepEqual(item.voters.sort(), [users[0].nickname, users[1].nickname].sort());
+  assert.deepEqual([list.voterCount, list.participantCount], [2, 2]);
+});
