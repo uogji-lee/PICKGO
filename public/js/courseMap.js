@@ -179,6 +179,16 @@ async function renderKakaoCourseMap(panel, routes, javascriptKey) {
   };
   chips.forEach(chip => { chip.onclick = () => select(chip.dataset.courseDay === 'all' ? null : Number(chip.dataset.courseDay)); });
   select(null);
+  // 펼친 직후에는 브라우저 배치가 끝나기 전이라 지도 크기가 틀리게 잡힐 수 있어 한 번 더 맞추고, 크기가 바뀌면(회전 등) 다시 맞춤
+  setTimeout(refit, 150);
+  if (typeof ResizeObserver === 'function') {
+    let width = mapEl.clientWidth;
+    new ResizeObserver(() => {
+      if (!mapEl.clientWidth || mapEl.clientWidth === width) return;
+      width = mapEl.clientWidth;
+      refit();
+    }).observe(mapEl);
+  }
   return { refit };
 }
 
