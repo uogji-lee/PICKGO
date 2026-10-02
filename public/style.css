@@ -910,6 +910,7 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .origin-list, .dresscode-concepts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
 .origin-list li, .dresscode-concepts li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--bg); font-size: 13px; }
 .origin-list li.missing span, .dresscode-concepts .muted { color: var(--muted); }
+.origin-list li.undecided span { color: var(--teal); }
 .dresscode-concepts { margin-top: 12px; }
 .dresscode-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 600; cursor: pointer; }
 .dresscode-toggle input { width: 18px; height: 18px; accent-color: var(--primary); }
@@ -990,7 +991,8 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .past-trip-course { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
 
 /* 출발지 지도 · 중간지점 */
-.origin-form .origin-search, .origin-form .origin-results, .origin-form .origin-map, .origin-form .origin-picked, .origin-form .origin-wide { grid-column: 1 / -1; }
+.origin-form .origin-search, .origin-form .origin-results, .origin-form .origin-map, .origin-form .origin-picked, .origin-form .origin-wide, .origin-form .origin-current { grid-column: 1 / -1; }
+.origin-current { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--teal-soft); color: var(--teal); font-size: 13px; font-weight: 700; }
 .origin-search { display: flex; gap: 6px; }
 .origin-search input { flex: 1; min-width: 0; }
 .origin-search button { margin: 0; }

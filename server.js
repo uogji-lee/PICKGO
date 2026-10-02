@@ -280,7 +280,7 @@ function roomVersion(roomId) {
   const parts = [
     db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId),
     db.prepare(`SELECT user_id, role, active, availability_json, dresscode, preferences_json, custom_preference,
-      origin_id, origin_mode, origin_lat, origin_lng, origin_label FROM room_members WHERE room_id = ? ORDER BY user_id`).all(roomId),
+      origin_id, origin_mode, origin_lat, origin_lng, origin_label, origin_undecided FROM room_members WHERE room_id = ? ORDER BY user_id`).all(roomId),
     db.prepare('SELECT id, title, participant_ids, status, notes, destination_method, draw_count FROM journeys WHERE room_id = ? ORDER BY id').all(roomId),
     db.prepare('SELECT count(*) AS c, sum(deleted) AS d, max(id) AS m FROM destination_candidates WHERE room_id = ?').get(roomId),
     db.prepare(`SELECT group_concat(trip_id || ':' || user_id || ':' || region_key) AS v FROM destination_votes WHERE trip_id IN (${trips})`).get(roomId),
@@ -310,7 +310,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
 
   const members = db.prepare(`
-    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng, m.origin_label
+    SELECT u.id, u.nickname, m.role, m.availability_json, m.dresscode, m.preferences_json, m.custom_preference, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng, m.origin_label, m.origin_undecided
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).map(m => ({
@@ -328,6 +328,7 @@ app.get('/api/rooms/:id', auth, (req, res) => {
     origin: reachability.isKoreanCoordinate(m.origin_lat, m.origin_lng)
       ? { lat: m.origin_lat, lng: m.origin_lng, label: m.origin_label || '지도에서 고른 위치' }
       : null,
+    originUndecided: Boolean(m.origin_undecided),
   }));
 
   // 날짜별 가능 인원 집계
@@ -462,6 +463,12 @@ app.post('/api/rooms/:id/origin', auth, (req, res) => {
   if (!room) return;
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
   const { originId, mode, label } = req.body || {};
+  // 출발지 미정: 저장된 위치를 지우고 '가기 쉬운 여행지' 계산에서 빼되 미입력과 구분해 표시
+  if (req.body?.undecided === true) {
+    db.prepare('UPDATE room_members SET origin_undecided = 1, origin_id = NULL, origin_mode = NULL, origin_lat = NULL, origin_lng = NULL, origin_label = NULL WHERE room_id = ? AND user_id = ?')
+      .run(room.id, req.user.id);
+    return res.json({ ok: true, undecided: true });
+  }
   const cleanMode = reachability.normalizeMode(mode);
   if (!cleanMode) return res.status(400).json({ error: '이동수단은 자가용 또는 대중교통 중에서 선택해주세요.' });
   // 카카오맵에서 고른 위치(좌표+이름)는 방 멤버에게 출발지로 공유됨. 약 10m 단위로 반올림해 저장
@@ -469,13 +476,13 @@ app.post('/api/rooms/:id/origin', auth, (req, res) => {
     const lat = Number(req.body.lat), lng = Number(req.body.lng);
     if (!reachability.isKoreanCoordinate(lat, lng)) return res.status(400).json({ error: '국내 위치를 지도에서 선택해주세요.' });
     const cleanLabel = String(label || '').trim().slice(0, 60) || '지도에서 고른 위치';
-    db.prepare('UPDATE room_members SET origin_lat = ?, origin_lng = ?, origin_label = ?, origin_id = ?, origin_mode = ? WHERE room_id = ? AND user_id = ?')
+    db.prepare('UPDATE room_members SET origin_lat = ?, origin_lng = ?, origin_label = ?, origin_id = ?, origin_mode = ?, origin_undecided = 0 WHERE room_id = ? AND user_id = ?')
       .run(Number(lat.toFixed(4)), Number(lng.toFixed(4)), cleanLabel, reachability.nearestOriginId(lat, lng), cleanMode, room.id, req.user.id);
     return res.json({ ok: true, origin: { lat: Number(lat.toFixed(4)), lng: Number(lng.toFixed(4)), label: cleanLabel }, mode: cleanMode });
   }
   const resolvedOriginId = reachability.normalizeOriginId(originId);
   if (!resolvedOriginId) return res.status(400).json({ error: '출발 지역을 선택해주세요.' });
-  db.prepare('UPDATE room_members SET origin_id = ?, origin_mode = ?, origin_lat = NULL, origin_lng = NULL, origin_label = NULL WHERE room_id = ? AND user_id = ?')
+  db.prepare('UPDATE room_members SET origin_id = ?, origin_mode = ?, origin_lat = NULL, origin_lng = NULL, origin_label = NULL, origin_undecided = 0 WHERE room_id = ? AND user_id = ?')
     .run(resolvedOriginId, cleanMode, room.id, req.user.id);
   res.json({ ok: true, originId: resolvedOriginId, mode: cleanMode });
 });
@@ -486,20 +493,21 @@ app.get('/api/rooms/:id/easy-regions', auth, (req, res) => {
   if (!isMember(room.id, req.user.id)) return res.status(403).json({ error: '방 멤버가 아닙니다.' });
   const roster = tripRoster(room);
   const travelers = db.prepare(`
-    SELECT u.id, u.nickname, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng
+    SELECT u.id, u.nickname, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng, m.origin_undecided
     FROM room_members m JOIN users u ON u.id = m.user_id
     WHERE m.room_id = ? AND m.active = 1
   `).all(room.id).filter(member => !roster || roster.includes(member.id))
-    .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, lat: member.origin_lat, lng: member.origin_lng, mode: member.origin_mode }));
-  // 참석자 출발 위치의 중간지점 근처 여행지를 이동 시간 공평성 순으로 추천
-  const { midpoint, ranking } = reachability.recommendNearMidpoint(travelers, regions, Math.min(Math.max(Number(req.query.limit) || 5, 1), 10));
+    .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, lat: member.origin_lat, lng: member.origin_lng, mode: member.origin_mode, undecided: Boolean(member.origin_undecided) }));
+  // 참석자 출발 위치의 중간지점 근처 여행지를 이동 시간 공평성 순으로 추천 (출발지 미정인 참석자는 계산 제외)
+  const { midpoint, ranking } = reachability.recommendNearMidpoint(travelers.filter(traveler => !traveler.undecided), regions, Math.min(Math.max(Number(req.query.limit) || 5, 1), 10));
   const readyIds = new Set(ranking[0]?.legs.map(leg => leg.userId) || []);
   res.json({
     midpoint,
     ranking,
     readyCount: readyIds.size,
     travelerCount: travelers.length,
-    missing: travelers.filter(traveler => !readyIds.has(traveler.userId)).map(traveler => traveler.nickname),
+    missing: travelers.filter(traveler => !traveler.undecided && !readyIds.has(traveler.userId)).map(traveler => traveler.nickname),
+    undecidedOrigins: travelers.filter(traveler => traveler.undecided).map(traveler => traveler.nickname),
   });
 });
 

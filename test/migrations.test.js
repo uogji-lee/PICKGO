@@ -27,6 +27,7 @@ test('기존 회원·지출·반환·총무를 보존하며 반복 실행해도 
   assert.equal(db.prepare('SELECT amount FROM trip_payments').get().amount, 20000);
   assert.deepEqual(db.prepare('SELECT amount,trip_id FROM trip_expenses').get(), { amount: 9000, trip_id: journeys[0].id });
   assert.deepEqual(db.prepare('SELECT amount,trip_id FROM trip_refunds').get(), { amount: 1000, trip_id: journeys[0].id });
+  assert.deepEqual(db.prepare('SELECT origin_undecided FROM room_members').all().map(row => row.origin_undecided), [0, 0]); // 기존 멤버는 출발지 미정 아님
   db.close();
 });
 

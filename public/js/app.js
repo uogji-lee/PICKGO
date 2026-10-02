@@ -452,6 +452,7 @@ async function renderRoomDetail() {
       <div class="collapsible-card-content">
       <p class="desc">어디서 출발하는지 멤버들과 공유해요. 집 대신 역·동네처럼 대략적인 위치를 골라도 괜찮아요.</p>
       <form id="originForm" class="origin-form">
+        ${me?.originUndecided ? '<p class="origin-current">현재: 출발지 미정 · 정해지면 위치를 골라 저장해주세요.</p>' : ''}
         ${mapKey ? `
           <div class="origin-search"><input id="originQuery" placeholder="장소·주소 검색 (예: 강남역)" maxlength="60" /><button type="button" class="secondary" id="originSearchBtn">검색</button></div>
           <ul id="originResults" class="origin-results"></ul>
@@ -474,6 +475,7 @@ async function renderRoomDetail() {
           </select>
         </label>
         <div class="origin-actions">
+          <button type="button" class="ghost small" id="originUndecided" ${me?.originUndecided ? 'disabled' : ''}>출발지 미정</button>
           <button type="button" class="ghost small" id="originLocate">📍 내 위치</button>
           <button type="submit" class="secondary">출발지 저장</button>
         </div>
@@ -483,7 +485,7 @@ async function renderRoomDetail() {
       <ul class="origin-list">
         ${tripMembers.map(m => {
           const where = m.origin?.label || (m.originId ? originLabel(m.originId) : '');
-          return `<li class="${where ? '' : 'missing'}"><strong>${escapeHtml(m.nickname)}</strong><span>${where ? `${escapeHtml(where)} · ${escapeHtml(originModes[m.originMode] || '')}` : '미입력'}</span></li>`;
+          return `<li class="${where ? '' : m.originUndecided ? 'undecided' : 'missing'}"><strong>${escapeHtml(m.nickname)}</strong><span>${where ? `${escapeHtml(where)} · ${escapeHtml(originModes[m.originMode] || '')}` : m.originUndecided ? '출발지 미정' : '미입력'}</span></li>`;
         }).join('')}
       </ul>
       </div>
@@ -600,7 +602,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : '미입력'}</span>
+            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : m.originUndecided ? '미정' : '미입력'}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}

@@ -80,21 +80,23 @@ function registerDestinations(app, deps) {
   const drawsLeft = trip => Math.max(0, 1 + trip.draw_limit - trip.draw_count);
 
   function travelers(room, roster) {
-    return db.prepare(`SELECT u.id, u.nickname, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng
+    return db.prepare(`SELECT u.id, u.nickname, m.origin_id, m.origin_mode, m.origin_lat, m.origin_lng, m.origin_undecided
       FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.active = 1`).all(room.id)
       .filter(member => roster.includes(member.id))
-      .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, lat: member.origin_lat, lng: member.origin_lng, mode: member.origin_mode }));
+      .map(member => ({ userId: member.id, nickname: member.nickname, originId: member.origin_id, lat: member.origin_lat, lng: member.origin_lng, mode: member.origin_mode, undecided: Boolean(member.origin_undecided) }));
   }
 
   // 방식별 후보 목록: 가기 쉬운 곳은 중간지점 추천 TOP 5, 원하는 곳은 멤버가 올린 지역
   function candidatesOf({ room, trip, roster }) {
     if (trip.destination_method === 'easy') {
       const list = travelers(room, roster);
-      const { midpoint, ranking } = reachability.recommendNearMidpoint(list, regions, 5);
+      // 출발지 미정인 참석자는 계산에서 빼고, 미입력 안내와 따로 보여줌
+      const { midpoint, ranking } = reachability.recommendNearMidpoint(list.filter(traveler => !traveler.undecided), regions, 5);
       const ready = new Set(ranking[0]?.legs.map(leg => leg.userId) || []);
       return {
         midpoint,
-        missingOrigins: list.filter(traveler => !ready.has(traveler.userId)).map(traveler => traveler.nickname),
+        missingOrigins: list.filter(traveler => !traveler.undecided && !ready.has(traveler.userId)).map(traveler => traveler.nickname),
+        undecidedOrigins: list.filter(traveler => traveler.undecided).map(traveler => traveler.nickname),
         items: ranking.map(item => ({
           region: tools.fromBuiltin(tools.builtin.get(item.region.id)),
           averageMinutes: item.averageMinutes, maxMinutes: item.maxMinutes, distanceFromMidpointKm: item.distanceFromMidpointKm, legs: item.legs,
@@ -112,7 +114,7 @@ function registerDestinations(app, deps) {
   app.get('/api/rooms/:id/destination', auth, handle(req => {
     const ctx = context(req);
     const { room, trip, isHost, isParticipant } = ctx;
-    const { items, midpoint = null, missingOrigins = [] } = candidatesOf(ctx);
+    const { items, midpoint = null, missingOrigins = [], undecidedOrigins = [] } = candidatesOf(ctx);
     const votes = db.prepare(`SELECT v.region_key, v.user_id, u.nickname FROM destination_votes v JOIN users u ON u.id = v.user_id
       WHERE v.trip_id = ? ORDER BY u.nickname`).all(trip.id);
     const selected = tools.resolve(room.selected_region_id, room.selected_region_json);
@@ -125,6 +127,7 @@ function registerDestinations(app, deps) {
       selected: selected ? { key: regionKey(selected), name: selected.name } : null,
       midpoint,
       missingOrigins,
+      undecidedOrigins,
       candidates: items.map(item => {
         const key = regionKey(item.region);
         const voters = votes.filter(vote => vote.region_key === key);

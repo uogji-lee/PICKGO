@@ -85,6 +85,7 @@ async function loadDestination(room, isHost, tripMembers, mapKey = null) {
     ${data.selected ? `<p class="dest-selected">✅ 현재 여행지: <strong>${escapeHtml(data.selected.name)}</strong></p>` : ''}
     ${data.method === 'easy' ? `
       ${data.missingOrigins.length ? `<p class="recommendation-notice">출발지를 아직 공유하지 않은 참석자: ${data.missingOrigins.map(escapeHtml).join(', ')} · 위 <button type="button" class="link-btn" data-scroll-origin>📍 출발지 공유</button>에서 입력해주세요.</p>` : ''}
+      ${data.undecidedOrigins?.length ? `<p class="desc">출발지 미정(계산 제외): ${data.undecidedOrigins.map(escapeHtml).join(', ')}</p>` : ''}
       ${data.midpoint ? `<p class="midpoint-label">📍 참석자 중간지점: <strong>${escapeHtml(data.midpoint.label)}</strong></p>` : ''}
       ${data.candidates.length ? destinationCandidateList(data) : '<p class="empty-state">출발지가 모이면 후보 5곳이 나타나요.</p>'}` : ''}
     ${data.method === 'wish' ? `

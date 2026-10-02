@@ -79,7 +79,7 @@ async function bindOriginForm(room, isHost, me, tripMembers, mapKey) {
   const status = text => { statusBox.textContent = text; };
   const picker = mapKey ? await setupOriginMap(me, tripMembers, mapKey, status) : null;
   const save = async body => {
-    const buttons = form.querySelectorAll('button');
+    const buttons = [...form.querySelectorAll('button')].filter(button => !button.disabled);
     buttons.forEach(button => { button.disabled = true; });
     try {
       await api(`/rooms/${room.id}/origin`, { method: 'POST', body: { ...body, mode: form.elements.mode.value } });
@@ -96,6 +96,11 @@ async function bindOriginForm(room, isHost, me, tripMembers, mapKey) {
       if (!form.elements.originId.value) { status('출발 지역을 선택해주세요.'); return; }
       save({ originId: form.elements.originId.value });
     }
+  };
+  // 출발지 미정: 저장된 위치는 지우고 가기 쉬운 여행지 계산에서 빠짐
+  document.getElementById('originUndecided').onclick = async () => {
+    if ((me?.origin || me?.originId) && !await confirmAction('공유한 출발지를 지우고 \'출발지 미정\'으로 표시할까요?')) return;
+    save({ undecided: true });
   };
   const locate = document.getElementById('originLocate');
   if (!navigator.geolocation) { locate.hidden = true; return; }
@@ -130,8 +135,9 @@ async function loadEasyRegions(room, isHost, tripMembers = [], mapKey = null) {
   try { data = await api(`/rooms/${room.id}/easy-regions`); }
   catch (error) { if (root.isConnected) root.innerHTML = `<p class="error-msg">${escapeHtml(error.message)}</p>`; return; }
   if (!root.isConnected) return;
+  const undecided = data.undecidedOrigins?.length ? `<p class="desc">출발지 미정(계산 제외): ${data.undecidedOrigins.map(escapeHtml).join(', ')}</p>` : '';
   if (!data.ranking.length) {
-    root.innerHTML = '<p class="empty-state">아직 출발지를 공유한 참석자가 없어요. 위에서 출발지를 먼저 저장해주세요.</p>';
+    root.innerHTML = `<p class="empty-state">아직 출발지를 공유한 참석자가 없어요. 위에서 출발지를 먼저 저장해주세요.</p>${undecided}`;
     return;
   }
   const longest = Math.max(...data.ranking.map(item => item.maxMinutes));
@@ -139,6 +145,7 @@ async function loadEasyRegions(room, isHost, tripMembers = [], mapKey = null) {
     <p class="midpoint-label">📍 참석자 중간지점: <strong>${escapeHtml(data.midpoint.label)}</strong></p>
     ${mapKey ? '<div id="midpointMap" class="origin-map small"></div>' : ''}
     <p class="desc">${data.readyCount}/${data.travelerCount}명 기준${data.missing.length ? ` · 출발지 미입력: ${data.missing.map(escapeHtml).join(', ')}` : ''}</p>
+    ${undecided}
     <ol class="easy-region-list">
       ${data.ranking.map((item, index) => `
         <li class="easy-region ${room.selectedRegion?.id === item.region.id ? 'chosen' : ''}">
