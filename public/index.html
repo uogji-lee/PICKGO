@@ -4,9 +4,28 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>PICKGO - 친구들과 떠나는 랜덤 여행</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <!-- 여행 결과 폴라로이드·추첨 연출에 쓰는 그림 -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="travelSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b79ad6"/><stop offset=".45" stop-color="#f29a8e"/><stop offset="1" stop-color="#f9cf8f"/></linearGradient>
+      <linearGradient id="travelSea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5d8fc4"/><stop offset="1" stop-color="#2f5e8f"/></linearGradient>
+      <symbol id="travelScene" viewBox="0 0 200 160">
+        <rect width="200" height="160" fill="url(#travelSky)"/>
+        <circle cx="140" cy="88" r="16" fill="#fff1c9" opacity=".95"/>
+        <path d="M0 104 Q30 84 56 96 T110 92 Q130 98 150 104 L200 102 L200 160 L0 160Z" fill="#3e4a5c"/>
+        <path d="M58 104 l6 -14 l6 14z M74 106 l5 -10 l5 10z" fill="#2f394a"/>
+        <rect y="112" width="200" height="48" fill="url(#travelSea)"/>
+        <path d="M120 120 h40 M130 128 h26 M110 136 h50" stroke="#fff1c9" stroke-width="2" opacity=".7" stroke-linecap="round"/>
+        <path d="M20 132 l14 0 l-3 5 l-9 0z M27 132 v-10 l7 8" fill="#fff" stroke="#fff" stroke-width="1"/>
+      </symbol>
+    </defs>
+  </svg>
   <header class="topbar">
     <a class="logo" id="logoHome" href="/" aria-label="PICKGO 홈으로">🧭 PICKGO</a>
     <div class="topbar-right">

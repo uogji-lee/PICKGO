@@ -46,6 +46,7 @@ async function api(path, opts = {}) {
 // ---------- 초기화 ----------
 async function init() {
   initTheme();
+  watchHeadings(appEl());
   const oauthError = new URLSearchParams(location.hash.slice(1)).get('kakao_error');
   const oauthMessages = { state: '카카오 로그인 요청이 만료되었습니다. 다시 시도해주세요.', cancelled: '카카오 로그인을 취소했습니다.', configuration: '카카오 로그인 설정을 확인해주세요. Redirect URI·클라이언트 시크릿 설정이 필요합니다.', already_linked: '이미 다른 PICKGO 계정에 연결된 카카오 계정입니다.', login_required: 'PICKGO에 먼저 로그인해주세요.', not_linked: '이 카카오 계정과 연결된 PICKGO 계정이 없어요. 카카오를 연결하지 않은 계정은 찾을 수 없어요.' };
   const kakaoHash = location.hash;
@@ -200,6 +201,7 @@ document.addEventListener('input', event => { if (event.target.closest?.('#app')
 
 // ---------- 화면 렌더 ----------
 function render() {
+  document.body.dataset.view = state.view; // 화면별 배경(로그인 표지 등)을 CSS에서 고르기 위함
   renderUserBox();
   recordNavigation();
   if (state.view !== 'room') { stopRoomSync(); state.roomSummary = null; }
@@ -869,7 +871,8 @@ function renderResultCard(room) {
   const region = room.selectedRegion;
   if (!region) return '';
   return `
-    <div class="card">
+    <div class="card result-card">
+      <div class="result-polaroid" aria-hidden="true"><span class="tape"></span><svg viewBox="0 0 200 160"><use href="#travelScene"/></svg></div>
       <div class="region-result">
         <div style="font-size:13px;color:var(--muted)">🎉 우리 여행지</div>
         <div class="region-name">${escapeHtml(region.name)}</div>

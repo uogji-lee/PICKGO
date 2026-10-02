@@ -76,7 +76,10 @@ function runDrawAnimation({ label = '🎲 여행지를 뽑는 중…', pool = []
   return new Promise(resolve => {
     const dialog = document.createElement('dialog');
     dialog.className = 'draw-dialog';
-    dialog.innerHTML = `<div class="draw-box"><div class="draw-label">${escapeHtml(label)}</div><div class="draw-region" aria-live="off">???</div><div class="draw-sub"></div><p class="draw-result" role="status"></p></div>`;
+    // 주사위가 구르는 동안 폴라로이드 사진이 서서히 인화되고, 멈추면 테이프가 붙음
+    dialog.innerHTML = `<div class="draw-box"><div class="draw-dice" aria-hidden="true"><span>🎲</span><span>🎲</span></div><div class="draw-label">${escapeHtml(label)}</div>
+      <div class="draw-polaroid"><span class="tape" aria-hidden="true"></span><svg class="draw-photo" viewBox="0 0 200 160" aria-hidden="true"><use href="#travelScene"/></svg><div class="draw-region" aria-live="off">???</div></div>
+      <div class="draw-sub"></div><p class="draw-result" role="status"></p></div>`;
     document.body.append(dialog);
     dialog.showModal();
     const main = dialog.querySelector('.draw-region');
@@ -84,9 +87,11 @@ function runDrawAnimation({ label = '🎲 여행지를 뽑는 중…', pool = []
     const names = pool.length ? pool : [final];
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const start = Date.now();
+    requestAnimationFrame(() => dialog.classList.add('developing'));
     const finish = () => {
       main.textContent = final;
       main.classList.add('landed');
+      dialog.classList.add('landed');
       if (subFinal) sub.textContent = `👗 ${subFinal}`;
       dialog.querySelector('.draw-result').textContent = `결과: ${final}${subFinal ? `, 드레스코드 ${subFinal}` : ''}`;
       setTimeout(() => { dialog.close(); dialog.remove(); isDrawing = false; resolve(); }, 1100);
@@ -101,6 +106,26 @@ function runDrawAnimation({ label = '🎲 여행지를 뽑는 중…', pool = []
       setTimeout(tick, 40 + progress * progress * 260);
     })();
   });
+}
+
+// 카드 제목 맨 앞의 이모지를 색 동그라미로 감싸 노트 스타일 제목으로 보여줌 (글자는 그대로 두어 접힘 상태 비교 등에 영향 없음)
+const LEADING_EMOJI = /^\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*/u;
+function decorateHeading(heading) {
+  heading.dataset.decorated = '';
+  const first = heading.firstChild;
+  const emoji = first?.nodeType === Node.TEXT_NODE ? first.textContent.match(LEADING_EMOJI)?.[0] : null;
+  if (!emoji) return;
+  first.textContent = first.textContent.slice(emoji.length);
+  const icon = document.createElement('span');
+  icon.className = 'heading-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = emoji;
+  heading.prepend(icon);
+}
+function watchHeadings(root) {
+  const decorateAll = () => root.querySelectorAll('h2:not([data-decorated])').forEach(decorateHeading);
+  new MutationObserver(decorateAll).observe(root, { childList: true, subtree: true });
+  decorateAll();
 }
 
 function skeletonCard(lines = 3) {
