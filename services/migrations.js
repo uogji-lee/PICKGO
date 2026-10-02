@@ -114,6 +114,12 @@ module.exports = function migrate(db) {
     CREATE INDEX IF NOT EXISTS packing_trip ON packing_items(trip_id);
     CREATE TABLE IF NOT EXISTS packing_seeds(trip_id INTEGER NOT NULL REFERENCES journeys(id),user_id INTEGER NOT NULL,PRIMARY KEY(trip_id,user_id));`);
     add('room_members', 'origin_undecided', 'INTEGER NOT NULL DEFAULT 0');
+    db.exec(`CREATE TABLE IF NOT EXISTS inquiries (
+      id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), category TEXT NOT NULL, message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open', reply TEXT, replied_by INTEGER REFERENCES users(id), replied_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS inquiries_user ON inquiries(user_id);`);
     // 대소문자만 다른 닉네임 중복 방지: 기존 데이터에 그런 중복이 없을 때만 인덱스 생성
     const hasNickname = db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'nickname');
     if (hasNickname && !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'users_nickname_ci'").get()) {

@@ -64,6 +64,7 @@ async function init() {
   }
   render();
   document.getElementById('helpGuide').onclick = () => showQuickGuide(true);
+  document.getElementById('inquiryBtn').onclick = openInquiry;
   showQuickGuide();
 }
 
@@ -148,6 +149,8 @@ function render() {
     renderFindAccount();
   } else if (state.view === 'passwordReset') {
     renderPasswordReset();
+  } else if (state.view === 'inquiry') {
+    renderInquiry();
   }
 }
 

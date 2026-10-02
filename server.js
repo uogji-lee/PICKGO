@@ -37,6 +37,7 @@ const naverLocal = createNaverLocalClient();
 const tourApi = createTourApiClient();
 const { registerAccommodation, verifyAccommodation } = require('./services/accommodation');
 const { registerLodging } = require('./services/lodging');
+const { registerInquiries, isAdmin } = require('./services/inquiries');
 const { createRegionTools, registerDestinations, DRAW_LIMITS, METHODS: DESTINATION_METHODS } = require('./services/destinations');
 const { REGION_COORDS } = require('./data/travelGeo');
 const regionTools = createRegionTools({ regions, regionCoords: REGION_COORDS, isKoreanCoordinate: reachability.isKoreanCoordinate });
@@ -159,6 +160,7 @@ app.get('/api/me', optionalAuth, (req, res) => {
     ...req.user,
     kakaoLinked: Boolean(db.prepare('SELECT 1 FROM kakao_accounts WHERE user_id = ?').get(req.user.id)),
     hasPassword: Boolean(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id)?.password_hash),
+    isAdmin: isAdmin(req.user.id),
   } : null });
 });
 
@@ -830,6 +832,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
 });
 
 registerRoomManagement(app, db, auth);
+registerInquiries(app, { db, auth });
 
 app.get('/api/health', (req,res) => res.json({service:'PICKGO',status:'ok'}));
 
