@@ -25,11 +25,15 @@ function safeWebUrl(value) {
   }
 }
 
+// 네이버 지역검색 mapx/mapy는 WGS84 경도/위도 × 10^7 정수. 예전 카텍(KATEC) 좌표처럼
+// 나눠도 1도 미만이 되는 값은 변환하지 않고 버린다(엉뚱한 바다 위에 찍히는 것 방지).
 function normalizeCoordinate(value, max) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
-  const normalized = Math.abs(number) > max ? number / 10_000_000 : number;
-  return String(normalized);
+  if (Math.abs(number) <= max) return String(number);
+  const normalized = number / 10_000_000;
+  return Math.abs(normalized) >= 1 && Math.abs(normalized) <= max ? String(normalized) : null;
 }
 
 function createNaverLocalClient(options = {}) {

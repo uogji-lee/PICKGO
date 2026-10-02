@@ -791,42 +791,6 @@ function loadKakaoMapsSdk(javascriptKey) {
   return kakaoMapsLoader;
 }
 
-async function renderKakaoCourseMap(container, itineraryDays, javascriptKey) {
-  const maps = await loadKakaoMapsSdk(javascriptKey);
-  const mappedDays = itineraryDays.map(day => ({
-    dayNumber: day.dayNumber,
-    stops: day.stops.filter(stop => ['kakao', 'tourapi'].includes(stop.place.source)
-      && Number.isFinite(Number(stop.place.mapX)) && Number.isFinite(Number(stop.place.mapY))),
-  })).filter(day => day.stops.length);
-  const firstStop = mappedDays[0]?.stops[0];
-  if (!firstStop) throw new Error('카카오 지도에 표시할 좌표가 없습니다.');
-
-  const center = new maps.LatLng(Number(firstStop.place.mapY), Number(firstStop.place.mapX));
-  const map = new maps.Map(container, { center, level: 7 });
-  const bounds = new maps.LatLngBounds();
-  const colors = ['#ff6b35', '#4d77ff', '#16a085', '#9b59b6', '#e67e22', '#2c3e50', '#c0392b', '#00897b'];
-
-  for (const day of mappedDays) {
-    const path = day.stops.map(stop => {
-      const position = new maps.LatLng(Number(stop.place.mapY), Number(stop.place.mapX));
-      bounds.extend(position);
-      new maps.Marker({ map, position, title: `${day.dayNumber}일차 · ${stop.place.name}` });
-      return position;
-    });
-    if (path.length > 1) {
-      new maps.Polyline({
-        map,
-        path,
-        strokeWeight: 4,
-        strokeColor: colors[(day.dayNumber - 1) % colors.length],
-        strokeOpacity: 0.8,
-        strokeStyle: 'solid',
-      });
-    }
-  }
-  map.setBounds(bounds);
-}
-
 function renderResultCard(room) {
   const region = room.selectedRegion;
   if (!region) return '';
@@ -869,9 +833,12 @@ async function loadRecommendations(roomId) {
     const combinedPreferenceSummary = [voteSummary, customVoteSummary].filter(Boolean).join(' · ');
     const notices = data.notices || (data.notice ? [data.notice] : []);
     const itineraryDays = data.itinerary?.days || [];
-    const hasKakaoMapPlaces = itineraryDays.some(day => day.stops.some(stop =>
-      ['kakao', 'tourapi'].includes(stop.place.source)
-      && Number.isFinite(Number(stop.place.mapX)) && Number.isFinite(Number(stop.place.mapY))));
+    // 출처와 무관하게 좌표가 있는 장소로 날짜별 경로·길찾기 구간을 만든다
+    const courseRoutes = buildCourseRoutes(itineraryDays, data.itinerary?.planning?.accommodation);
+    const directionsLink = (dayNumber, stopIndex, prefix = '') => {
+      const leg = courseLegFor(courseRoutes, dayNumber, stopIndex);
+      return leg ? `${prefix}${courseDirectionsLinkHtml(leg)}` : '';
+    };
     const placeLink = item => item.placeUrl
       || `https://map.kakao.com/link/search/${encodeURIComponent(`${item.name} ${item.address || ''}`)}`;
     const placeLinkLabel = item => item.source === 'google'
@@ -885,9 +852,6 @@ async function loadRecommendations(roomId) {
         </div>
         <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
       </div>
-      <div class="integration-status">
-        ${[['tourApi', '관광공사'], ['kakaoLocal', '카카오맵'], ['naverLocal', '네이버']].filter(([key]) => data.integrationStatus?.[key]?.connected).map(([, label]) => `<span class="connected">${label} 정보 반영</span>`).join('')}
-      </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
       <div class="route-context">
         <strong>${data.itinerary.planning.travelerCount}명 · ${escapeHtml(data.itinerary.planning.transportLabel)}</strong>
@@ -896,10 +860,10 @@ async function loadRecommendations(roomId) {
           : '숙소를 저장하면 숙소 출발·복귀 동선으로 다시 구성합니다.'}</span>
         ${data.itinerary.planning.seatWarning ? `<small>⚠️ ${escapeHtml(data.itinerary.planning.seatWarning)}</small>` : ''}
       </div>
-      ${data.kakaoMap?.configured && hasKakaoMapPlaces ? `
+      ${data.kakaoMap?.configured && courseRoutes.length ? `
         <div class="course-map-actions">
-          <button class="secondary" id="toggleCourseMapBtn">카카오맵으로 코스 보기</button>
-          <div class="course-map" id="courseMap" hidden></div>
+          <button class="secondary" id="toggleCourseMapBtn" aria-expanded="false" aria-controls="courseMapPanel">카카오맵으로 코스 보기</button>
+          <div class="course-map-panel" id="courseMapPanel" hidden>${courseMapPanelHtml(courseRoutes)}</div>
         </div>
       ` : ''}
       ${itineraryDays.length ? `
@@ -911,20 +875,23 @@ async function loadRecommendations(roomId) {
               <h4>${day.dayNumber}일차${day.date ? ` · ${escapeHtml(day.date)}` : ''}</h4>
               ${day.stops.length ? `
                 <div class="itinerary-list">
-                  ${day.stops.map(stop => `
+                  ${day.stops.map((stop, index) => `
                     <div class="itinerary-stop">
                       <div class="itinerary-time">${escapeHtml(stop.time)}</div>
                       <div class="itinerary-dot"></div>
                       <div class="itinerary-content">
-                        <span>${escapeHtml(stop.title)}</span>
+                        <span>${day.dayNumber}-${index + 1} · ${escapeHtml(stop.title)}</span>
                         <strong>${escapeHtml(stop.place.name)}</strong>
                         <small>${escapeHtml(stop.place.reason)}${stop.travelKmFromPrevious !== null ? ` · ${stop.travelOrigin === 'accommodation' ? '숙소에서' : '이전 장소에서'} 직선 약 ${stop.travelKmFromPrevious}km · ${escapeHtml(data.itinerary.planning.transportLabel)} ${travelMinutesLabel(stop.travelMinutesFromPrevious)}` : ''}</small>
-                        <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">${escapeHtml(placeLinkLabel(stop.place))} →</a>
+                        <div class="itinerary-links">
+                          <a href="${escapeHtml(placeLink(stop.place))}" target="_blank" rel="noopener noreferrer">${escapeHtml(placeLinkLabel(stop.place))} →</a>
+                          ${directionsLink(day.dayNumber, index)}
+                        </div>
                       </div>
                     </div>
                   `).join('')}
                 </div>
-                ${day.returnKmToAccommodation !== null ? `<div class="itinerary-return">↩ 숙소 복귀 직선 약 ${day.returnKmToAccommodation}km · ${travelMinutesLabel(day.returnMinutesToAccommodation)} · 하루 이동 예상 ${day.estimatedTravelKm}km</div>` : ''}
+                ${day.returnKmToAccommodation !== null ? `<div class="itinerary-return">↩ 숙소 복귀 직선 약 ${day.returnKmToAccommodation}km · ${travelMinutesLabel(day.returnMinutesToAccommodation)} · 하루 이동 예상 ${day.estimatedTravelKm}km${directionsLink(day.dayNumber, null, ' · ')}</div>` : ''}
               ` : '<p class="itinerary-empty">추천 장소를 더 불러오면 이 날짜의 코스를 채울 수 있어요.</p>'}
             </div>
           `).join('')}
@@ -957,21 +924,33 @@ async function loadRecommendations(roomId) {
 
     const mapButton = el('#toggleCourseMapBtn');
     if (mapButton) {
+      let courseMapView = null;
       mapButton.onclick = async () => {
-        const container = el('#courseMap');
-        if (!container.hidden) {
-          container.hidden = true;
+        const panel = el('#courseMapPanel');
+        const filter = el('.course-map-filter', panel);
+        if (!panel.hidden && courseMapView) {
+          panel.hidden = true;
           mapButton.textContent = '카카오맵으로 코스 보기';
+          mapButton.setAttribute('aria-expanded', 'false');
           return;
         }
-        container.hidden = false;
+        panel.hidden = false;
+        mapButton.setAttribute('aria-expanded', 'true');
+        // 이미 그린 지도는 다시 펼칠 때 크기·범위만 맞춤
+        if (courseMapView) {
+          courseMapView.refit();
+          mapButton.textContent = '코스 지도 접기';
+          return;
+        }
         mapButton.disabled = true;
         mapButton.textContent = '지도를 불러오는 중...';
+        if (filter) filter.hidden = false;
         try {
-          await renderKakaoCourseMap(container, itineraryDays, data.kakaoMap.javascriptKey);
+          courseMapView = await renderKakaoCourseMap(panel, courseRoutes, data.kakaoMap.javascriptKey);
           mapButton.textContent = '코스 지도 접기';
         } catch (error) {
-          container.innerHTML = `<div class="error-msg">${escapeHtml(error.message)}</div>`;
+          el('.course-map', panel).innerHTML = `<div class="error-msg">${escapeHtml(error.message)}</div>`;
+          if (filter) filter.hidden = true;
           mapButton.textContent = '지도 다시 불러오기';
         } finally {
           mapButton.disabled = false;

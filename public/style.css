@@ -607,29 +607,11 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font-size: 13px;
   line-height: 1.45;
 }
-.integration-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin: 0 0 14px;
-}
-.integration-status span {
-  padding: 5px 9px;
-  border-radius: 999px;
-  background: var(--soft-bg-2);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
 .trip-period-result {
   margin-top: 8px;
   color: var(--muted);
   font-size: 14px;
   font-weight: 700;
-}
-.integration-status span.connected {
-  background: var(--success-bg);
-  color: var(--success-text);
 }
 .route-context {
   display: flex;
@@ -648,14 +630,149 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .course-map-actions {
   margin: 0 0 18px;
 }
+.course-map-panel { margin-top: 12px; }
+.course-map-panel[hidden] { display: none; }
+.course-map-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.course-map-filter[hidden] { display: none; }
+.course-map-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.course-map-filter button:hover { background: var(--soft-bg); }
+.course-map-filter button.active {
+  border-color: var(--primary);
+  background: var(--accent-soft);
+  color: var(--primary-dark);
+}
+.course-day-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
 .course-map {
   width: 100%;
   height: 420px;
-  margin-top: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--soft-bg);
+}
+.course-map .error-msg { margin: 12px; }
+.course-map-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+/* 지도 위 번호 마커: 테두리 색이 날짜 색(인라인) */
+button.course-map-marker,
+button.course-map-home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 6px;
+  border: 3px solid var(--text);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 2px 6px var(--shadow);
+  font-weight: 800;
+  line-height: 1;
+}
+button.course-map-marker { min-width: 34px; height: 28px; font-size: 12px; }
+button.course-map-home { width: 34px; height: 34px; padding: 0; border-width: 2px; font-size: 17px; }
+button.course-map-marker:hover,
+button.course-map-home:hover { background: var(--soft-bg); }
+.course-map-bubble {
+  position: relative;
+  bottom: 24px;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(240px, 70vw);
+  padding: 10px 30px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 4px 14px var(--shadow);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
+.course-map-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  transform: translateX(-50%) rotate(45deg);
+}
+.course-map-bubble strong { font-size: 14px; }
+.course-map-bubble span,
+.course-map-bubble small { color: var(--muted); }
+.course-map-bubble a { color: var(--primary-dark); font-weight: 700; text-decoration: none; }
+.course-map-bubble button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin: 0;
+  padding: 2px 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+.course-map-bubble button:hover { background: var(--soft-bg); }
+.course-legs {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.course-legs > summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.course-legs > summary span { color: var(--muted); font-weight: 500; }
+.course-legs-day { padding: 0 12px 10px; }
+.course-legs-day[hidden] { display: none; }
+.course-legs-day > strong { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.course-legs ol { display: grid; gap: 4px; margin: 6px 0 0; padding-left: 20px; }
+.course-legs a {
+  color: var(--primary-dark);
+  font-size: 12px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .course-map { height: 300px; }
 }
 .itinerary-section {
   margin: 4px 0 24px;
@@ -713,7 +830,9 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .itinerary-content > span { color: var(--muted); font-size: 11px; }
 .itinerary-content > strong { font-size: 15px; }
 .itinerary-content > small { color: var(--muted); line-height: 1.4; }
-.itinerary-content > a { color: var(--primary-dark); font-size: 12px; font-weight: 700; text-decoration: none; }
+.itinerary-links { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.itinerary-links a,
+.itinerary-return a { color: var(--primary-dark); font-size: 12px; font-weight: 700; text-decoration: none; }
 .itinerary-return {
   margin: 0 0 4px 69px;
   padding: 8px 10px;
