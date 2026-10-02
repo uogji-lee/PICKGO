@@ -511,7 +511,7 @@ async function renderRoomDetail() {
     </section>
 
     <section id="panel-conditions" role="tabpanel" aria-labelledby="tab-conditions" tabindex="0" hidden>
-    ${destinationDecided ? '' : `<div class="card"><p class="desc">${room.activeTripId ? '아직 여행지를 정하지 않았어요. 장소 탭에서 여행지를 정한 뒤 숙소·교통·취향을 준비하면 좋아요.' : '여행을 만들고 여행지를 정하면 숙소·교통·취향을 준비해요.'}</p><button class="secondary" data-go-tab="place">장소로 가기</button></div>`}
+    ${destinationDecided ? `<div class="card decided-destination"><p>🎉 여행지: <strong>${escapeHtml(room.selectedRegion?.name || '')}</strong></p><button class="secondary small" data-go-tab="course">코스 보기</button></div>` : `<div class="card"><p class="desc">${room.activeTripId ? '아직 여행지를 정하지 않았어요. 장소 탭에서 여행지를 정한 뒤 숙소·교통·취향을 준비하면 좋아요.' : '여행을 만들고 여행지를 정하면 숙소·교통·취향을 준비해요.'}</p><button class="secondary" data-go-tab="place">장소로 가기</button></div>`}
     <div ${room.activeTripId ? '' : 'hidden'}>
     <details class="card collapsible-card" ${planningSectionsOpen}>
       <summary><h2>🏠 숙소 후보 · 투표</h2></summary>

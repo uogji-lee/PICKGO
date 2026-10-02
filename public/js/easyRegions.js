@@ -17,6 +17,13 @@ function addMemberChip(maps, map, position, text, extraClass = '') {
   return new maps.CustomOverlay({ map, position, content: chip, yAnchor: 1.8 });
 }
 
+// 숨은 탭·접힌 카드 안에서 만든 지도는 크기가 0이라, 다시 보일 때 크기와 중심을 맞춤
+function refitMapWhenShown(container, refit) {
+  const onShow = event => { if (container.isConnected && (event.type !== 'toggle' || event.target.open)) refit(); };
+  container.closest('[role="tabpanel"]')?.addEventListener('tabshow', onShow);
+  container.closest('details')?.addEventListener('toggle', onShow);
+}
+
 async function setupOriginMap(me, tripMembers, mapKey, status) {
   const container = document.getElementById('originMap');
   if (!container) return null;
@@ -33,6 +40,8 @@ async function setupOriginMap(me, tripMembers, mapKey, status) {
     addMemberChip(maps, map, position, member.nickname);
   }
   const marker = new maps.Marker({ position: map.getCenter(), map: mine ? map : null });
+  // 마커는 처음 중심이나 고른 위치에 있으니 다시 보일 때 그 위치로 맞춤
+  refitMapWhenShown(container, () => { map.relayout(); map.setCenter(marker.getPosition()); });
   const geocoder = new maps.services.Geocoder();
   const places = new maps.services.Places();
   let picked = mine ? { ...mine } : null;
@@ -183,6 +192,7 @@ async function loadEasyRegions(room, isHost, tripMembers = [], mapKey = null) {
       bounds.extend(center);
       addMemberChip(maps, map, center, '⭐ 중간지점', 'midpoint');
       map.setBounds(bounds);
+      refitMapWhenShown(container, () => { map.relayout(); map.setBounds(bounds); });
     }).catch(() => {});
   }
   root.querySelectorAll('[data-choose-region]').forEach(button => {

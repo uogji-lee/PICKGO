@@ -39,7 +39,11 @@ function bindRoomTabs(room) {
     }
     for (const key of [...TRIP_TABS, ...topButtons.map(button => button.dataset.roomTop).filter(key => key !== 'trip')]) {
       const panel = document.getElementById(`panel-${key}`);
-      if (panel) panel.hidden = key !== tab;
+      if (!panel) continue;
+      const wasHidden = panel.hidden;
+      panel.hidden = key !== tab;
+      // 숨어 있을 때 만든 지도처럼 크기를 다시 맞춰야 하는 내용에 알림
+      if (wasHidden && !panel.hidden) panel.dispatchEvent(new Event('tabshow'));
     }
   }
   const openTop = (top, focus = false) => activate(top === 'trip' ? (lastTripTab || defaultRoomTab(room, null)) : top, focus);

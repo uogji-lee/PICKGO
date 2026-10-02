@@ -173,7 +173,7 @@ body {
 [role="tabpanel"][hidden] { display: none !important; }
 #roomActionStatus:empty { display: none; }
 #tripManagement { margin-top: 18px; }
-/* 여행 안쪽 메뉴: 진행 중인 여행 이름 + 준비·코스·정산·준비물 */
+/* 여행 안쪽 메뉴: 진행 중인 여행 이름 + 장소·준비·코스·정산·준비물 */
 .trip-subnav { margin: -12px 0 20px; padding: 12px 14px 10px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 14px 14px; background: var(--card); }
 .trip-subnav-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 10px; }
 .trip-subnav-title .desc { margin: 0; font-size: 13px; }
@@ -183,6 +183,9 @@ body {
 .room-subtabs button[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--primary-dark); }
 .room-subtabs button:focus-visible { outline: 3px solid #c96b49; outline-offset: -3px; }
 @media (max-width: 480px) { .room-tabs { gap: 2px; padding: 4px; } .room-tabs button { padding: 10px 2px; font-size: 12px; } .trip-subnav { padding: 10px 10px 8px; } .room-subtabs { gap: 2px; } .room-subtabs button { padding: 9px 0; font-size: 13px; } }
+/* 준비 탭 맨 위: 정해진 여행지 + 코스 보기 */
+.decided-destination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.decided-destination p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .kakao-login-link { display: block; padding: 13px 18px; margin: 12px 0; border-radius: 10px; background: #fee500; color: #191919; text-align: center; text-decoration: none; font-weight: 600; }
 .kakao-login-link[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 .journey-history { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }
