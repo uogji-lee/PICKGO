@@ -65,7 +65,60 @@ async function init() {
   render();
   document.getElementById('helpGuide').onclick = () => showQuickGuide(true);
   document.getElementById('inquiryBtn').onclick = openInquiry;
+  const logo = document.getElementById('logoHome');
+  if (logo) logo.onclick = event => { event.preventDefault(); goHome(); };
+  window.addEventListener('popstate', restoreNavigation);
   showQuickGuide();
+}
+
+// ---------- 화면 이동 기록 (브라우저 뒤로가기) ----------
+let restoringNavigation = false;
+let activateRoomTab = null;
+function goHome() {
+  state.view = state.user ? 'rooms' : 'auth';
+  calendarCursor = null;
+  render();
+  window.scrollTo(0, 0);
+}
+// 화면(view·방)이 바뀌면 기록을 쌓고, 같은 화면을 다시 그리는 경우는 그대로 둠
+function recordNavigation() {
+  if (restoringNavigation) { restoringNavigation = false; return; }
+  if (state.view === 'loading') return;
+  const entry = { view: state.view, roomId: state.view === 'room' ? state.roomId : null };
+  const current = history.state;
+  if (current && current.view === entry.view && current.roomId === entry.roomId) return;
+  if (current?.view) history.pushState(entry, '');
+  else history.replaceState(entry, '');
+}
+// 방 안에서 탭을 직접 바꾸면 기록을 쌓고, 자동으로 정해진 탭은 현재 기록만 갱신
+function onRoomTabChange(tab, userInitiated) {
+  const current = history.state;
+  if (current?.view === 'room') {
+    if (userInitiated && current.tab && current.tab !== tab) history.pushState({ ...current, tab }, '');
+    else history.replaceState({ ...current, tab }, '');
+  }
+  if (userInitiated) scrollToRoomTabs();
+}
+function restoreNavigation(event) {
+  const entry = event.state;
+  if (!entry?.view || isDrawing) return;
+  if (entry.view === 'room' && state.view === 'room' && entry.roomId === state.roomId && activateRoomTab) {
+    if (entry.tab) { activateRoomTab(entry.tab); scrollToRoomTabs(); }
+    return;
+  }
+  restoringNavigation = true;
+  state.view = entry.view;
+  if (entry.roomId) state.roomId = entry.roomId;
+  state.pendingRoomTab = entry.tab || null;
+  render();
+  if (entry.view !== 'room') window.scrollTo(0, 0);
+}
+// 다음 단계로 넘어가거나 탭을 바꾸면 탭 메뉴가 보이도록 위로 이동
+function scrollToRoomTabs() {
+  const tabs = appEl().querySelector('.room-tabs');
+  if (!tabs) return;
+  const top = tabs.getBoundingClientRect().top + window.scrollY - 70;
+  if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
 }
 
 function renderUserBox() {
@@ -132,6 +185,7 @@ document.addEventListener('input', event => { if (event.target.closest?.('#app')
 // ---------- 화면 렌더 ----------
 function render() {
   renderUserBox();
+  recordNavigation();
   if (state.view !== 'room') { stopRoomSync(); state.roomSummary = null; }
   if (state.view === 'loading') {
     appEl().innerHTML = skeletonCard(3);
@@ -317,6 +371,7 @@ function captureRoomView() {
   if (state.renderedRoomId !== state.roomId || !appEl().querySelector('.room-tabs')) return null;
   return {
     scrollY: window.scrollY,
+    tab: roomTabState.get(state.roomId)?.tab || null,
     closed: [...appEl().querySelectorAll('details')].filter(item => !item.open).map(item => item.querySelector('summary')?.textContent.trim()).filter(Boolean),
     sections: Object.fromEntries(LIVE_SECTIONS.map(id => [id, document.getElementById(id)?.innerHTML]).filter(([, html]) => html)),
   };
@@ -330,7 +385,10 @@ function restoreRoomView(snapshot) {
   appEl().querySelectorAll('details').forEach(item => {
     if (snapshot.closed.includes(item.querySelector('summary')?.textContent.trim())) item.open = false;
   });
-  window.scrollTo(0, snapshot.scrollY);
+  // 여행지가 정해지는 등 다음 단계로 넘어가 다른 탭이 열렸으면 탭 위치로, 같은 탭이면 보던 위치 유지
+  const tab = roomTabState.get(state.roomId)?.tab || null;
+  if (snapshot.tab && tab !== snapshot.tab) { window.scrollTo(0, snapshot.scrollY); scrollToRoomTabs(); }
+  else window.scrollTo(0, snapshot.scrollY);
 }
 
 async function renderRoomDetail() {
@@ -620,7 +678,8 @@ async function renderRoomDetail() {
 
   `;
 
-  bindRoomTabs(room);
+  activateRoomTab = bindRoomTabs(room, { initialTab: state.pendingRoomTab, onChange: onRoomTabChange });
+  state.pendingRoomTab = null;
   restoreRoomView(snapshot);
   el('#backBtn').onclick = () => { state.view = 'rooms'; calendarCursor = null; render(); };
   const deleteButton = el('#deleteRoomBtn');
@@ -755,7 +814,7 @@ async function renderRoomDetail() {
   bindMemberManagement(room, members);
   loadRoomFinance(room, members);
   loadPacking(room);
-  loadLodging(room);
+  loadLodging(room, mapKey);
   loadDestination(room, isHost, tripMembers, mapKey);
   loadPastTrips(room);
   bindOriginForm(room, isHost, me, tripMembers, mapKey);

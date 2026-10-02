@@ -789,7 +789,7 @@ app.get('/api/rooms/:id/recommendations', auth, async (req, res) => {
     accommodation,
   });
   if (room.accommodation_url && !accommodation) {
-    notices.push('링크로 정한 숙소는 위치 좌표가 없어 여행지 중심으로 코스를 구성했어요.');
+    notices.push('숙소 위치를 아직 몰라 여행지 중심으로 코스를 짰어요. 준비 탭 숙소 카드에서 📍 위치 지정을 하면 숙소 기준으로 다시 짜요.');
   } else if (room.accommodation_name && !accommodation) {
     notices.push('숙소 좌표를 확인하지 못해 현재는 선정 지역 중심으로 코스를 구성했습니다. 여행 조건에서 숙소를 다시 검색해 주세요.');
   } else if (accommodation && !itinerary.days.some(day => day.stops.length)) {

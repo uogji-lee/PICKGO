@@ -92,6 +92,14 @@ function parseFeatures(text = '') {
   };
 }
 
+// 숙소 페이지의 위치: schema.org JSON-LD("latitude":..,"longitude":..) 또는 place:location 메타. 국내 좌표만 사용
+function parseLocation(html) {
+  const json = html.match(/"latitude"\s*:\s*"?(-?\d+(?:\.\d+)?)"?\s*,\s*"longitude"\s*:\s*"?(-?\d+(?:\.\d+)?)/);
+  const lat = Number(json?.[1] ?? metaContent(html, 'place:location:latitude') ?? metaContent(html, 'og:latitude'));
+  const lng = Number(json?.[2] ?? metaContent(html, 'place:location:longitude') ?? metaContent(html, 'og:longitude'));
+  return lat >= 33 && lat <= 38.7 && lng >= 124.5 && lng <= 131.9 ? { lat: Number(lat.toFixed(5)), lng: Number(lng.toFixed(5)) } : null;
+}
+
 function parsePreview(html, pageUrl) {
   const title = metaContent(html, 'og:title') || html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() || '';
   let image = metaContent(html, 'og:image') || metaContent(html, 'twitter:image');
@@ -100,7 +108,7 @@ function parsePreview(html, pageUrl) {
   const description = metaContent(html, 'og:description') || '';
   // 제목의 앞 두 덩어리(숙소 유형 · 지역)를 기본 이름으로 제안
   const suggestedName = decodeEntities(title).split(' · ').slice(0, 2).join(' · ').slice(0, 60);
-  return { title: decodeEntities(title).slice(0, 200), image, suggestedName, features: parseFeatures(`${title} ${description}`) };
+  return { title: decodeEntities(title).slice(0, 200), image, suggestedName, features: parseFeatures(`${title} ${description}`), location: parseLocation(html) };
 }
 
 async function fetchLinkPreview(url) {
@@ -108,4 +116,4 @@ async function fetchLinkPreview(url) {
   return parsePreview(html, finalUrl);
 }
 
-module.exports = { fetchLinkPreview, isPrivateAddress, parseFeatures, parsePreview };
+module.exports = { fetchLinkPreview, isPrivateAddress, parseFeatures, parseLocation, parsePreview };

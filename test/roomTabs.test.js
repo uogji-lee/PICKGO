@@ -133,3 +133,26 @@ test('위 탭과 여행 안쪽 5개 탭은 한 패널만 보여주고, 여행 �
     assert.deepEqual(visible(), ['panel-conditions']);
   } finally { delete global.document; }
 });
+
+test('탭이 바뀌면 사용자 조작 여부와 함께 알리고, 뒤로가기로 돌아올 때 지정한 탭을 연다', () => {
+  const keys = ['place', 'conditions', 'course', 'settle', 'packing', 'members', 'dues', 'history'];
+  const panels = Object.fromEntries(keys.map(key => ['panel-' + key, { hidden: true, dispatchEvent() {} }]));
+  const makeButton = dataset => ({ dataset, attrs: {}, getAttribute(key) { return this.attrs[key]; }, setAttribute(key, value) { this.attrs[key] = value; }, focus() {} });
+  const top = ['trip', 'members', 'dues', 'history'].map(key => makeButton({ roomTop: key }));
+  const sub = ['place', 'conditions', 'course', 'settle', 'packing'].map(key => makeButton({ roomTab: key }));
+  global.document = {
+    querySelectorAll: selector => selector === '[data-room-top]' ? top : selector === '[data-room-tab]' ? sub : [],
+    getElementById: id => id === 'tripSubnav' ? { hidden: true } : panels[id],
+  };
+  const changes = [];
+  try {
+    const switchTab = bindRoomTabs({ id: 92, activeTripId: 1, status: 'planning' }, { initialTab: 'settle', onChange: (tab, user) => changes.push(`${tab}:${user}`) });
+    assert.equal(panels['panel-settle'].hidden, false);
+    sub[2].onclick();
+    top[2].onclick();
+    sub[2].onclick(); // 같은 탭을 다시 눌러도 바뀐 게 아니면 알리지 않음은 아래에서 확인
+    switchTab('place');
+    assert.equal(panels['panel-place'].hidden, false);
+    assert.deepEqual(changes, ['settle:false', 'course:true', 'dues:true', 'course:true', 'place:false']);
+  } finally { delete global.document; }
+});

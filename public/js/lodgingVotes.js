@@ -9,7 +9,7 @@ function lodgingFeatures(item) {
 }
 const lodgingSite = url => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return '링크'; } };
 
-async function loadLodging(room) {
+async function loadLodging(room, mapKey = null) {
   const root = document.getElementById('lodgingPanel');
   if (!root || !room.activeTripId) return;
   let data;
@@ -44,9 +44,15 @@ async function loadLodging(room) {
         <div class="poll-footer">
           <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(lodgingSite(item.url))}에서 보기 ↗</a>
           <span>${escapeHtml(item.creator)}님이 올림</span>
+          ${item.lat != null ? '<span>📍 위치 있음</span>' : ''}
           ${data.isHost && !item.selected ? `<button type="button" class="small secondary" data-lodging-select="${item.id}">이 숙소로 확정</button>` : ''}
+          ${mapKey && (data.isHost || item.canDelete) ? `<button type="button" class="ghost small" data-lodging-locate="${item.id}">${item.lat != null ? '📍 위치 바꾸기' : '📍 위치 지정'}</button>` : ''}
           ${item.canDelete ? `<button type="button" class="ghost small" data-lodging-delete="${item.id}">삭제</button>` : ''}
         </div>
+        ${mapKey && (data.isHost || item.canDelete) ? `<form class="lodging-locate origin-search" data-lodging-locate-form="${item.id}" hidden>
+          <input name="query" maxlength="60" placeholder="숙소 이름이나 주소 검색" aria-label="${escapeHtml(item.name)} 위치 검색"><button class="secondary small">검색</button>
+          <ul class="origin-results"></ul>
+        </form>` : ''}
       </li>`;
     }).join('')}</ul>` : '<p class="empty-state">아직 숙소 후보가 없어요.</p>'}
     ${data.canEdit ? `<details class="nested-collapsible lodging-add" ${data.candidates.length ? '' : 'open'}><summary>➕ 숙소 후보 올리기</summary>
@@ -56,7 +62,7 @@ async function loadLodging(room) {
           <span id="lodgingPreviewThumb" class="poll-thumb placeholder" aria-hidden="true">🏠</span>
           <p id="lodgingPreviewTitle" class="desc"></p>
         </div>
-        <input type="hidden" name="imageUrl">
+        <input type="hidden" name="imageUrl"><input type="hidden" name="lat"><input type="hidden" name="lng">
         <label class="lodging-wide">숙소 이름<input name="name" required maxlength="60" placeholder="바다뷰 독채"></label>
         <label>침실<input name="bedrooms" type="number" min="0" max="30" step="1"></label>
         <label>침대<input name="beds" type="number" min="0" max="50" step="1"></label>
@@ -74,7 +80,7 @@ async function loadLodging(room) {
     try { return await api(`/rooms/${room.id}/lodging${path}`, { method: 'POST', body }); }
     catch (error) { status(error.message); button.disabled = false; return null; }
   }
-  root.querySelectorAll('[data-lodging-vote]').forEach(button => { button.onclick = async () => { if (await act(button, `/${button.dataset.lodgingVote}/vote`)) loadLodging(room); }; });
+  root.querySelectorAll('[data-lodging-vote]').forEach(button => { button.onclick = async () => { if (await act(button, `/${button.dataset.lodgingVote}/vote`)) loadLodging(room, mapKey); }; });
   root.querySelectorAll('[data-lodging-voters]').forEach(button => { button.onclick = () => {
     const list = document.getElementById(`lodgingVoters-${button.dataset.lodgingVoters}`);
     const open = list.hidden;
@@ -88,8 +94,38 @@ async function loadLodging(room) {
     if (await act(button, `/${button.dataset.lodgingDelete}/delete`)) render();
   }; });
   root.querySelectorAll('[data-lodging-select]').forEach(button => { button.onclick = async () => {
-    if (!await confirmAction('이 숙소로 확정할까요? 링크로 정한 숙소는 위치 좌표가 없어 코스는 여행지 중심으로 짜여요.')) return;
+    if (!await confirmAction('이 숙소로 확정할까요? 위치가 있으면 코스 지도에 🏠로 표시되고 숙소를 기준으로 동선을 짜요.')) return;
     if (await act(button, `/${button.dataset.lodgingSelect}/select`)) render();
+  }; });
+
+  root.querySelectorAll('[data-lodging-locate]').forEach(button => { button.onclick = () => {
+    const box = root.querySelector(`[data-lodging-locate-form="${button.dataset.lodgingLocate}"]`);
+    box.hidden = !box.hidden;
+    if (!box.hidden) box.elements.query.focus();
+  }; });
+  root.querySelectorAll('[data-lodging-locate-form]').forEach(box => { box.onsubmit = async event => {
+    event.preventDefault();
+    const query = box.elements.query.value.trim();
+    const list = box.querySelector('.origin-results');
+    if (query.length < 2) { status('검색어를 2자 이상 입력해주세요.'); return; }
+    try {
+      const maps = await loadKakaoMapsSdk(mapKey);
+      const places = await new Promise(resolve => new maps.services.Places().keywordSearch(query, (data, code) => resolve(code === maps.services.Status.OK ? data : []), { size: 5 }));
+      list.replaceChildren();
+      if (!places.length) { status('검색 결과가 없어요. 다른 이름이나 주소로 찾아보세요.'); return; }
+      status('');
+      for (const place of places) {
+        const item = document.createElement('li');
+        item.innerHTML = `<button type="button" class="ghost"><strong>${escapeHtml(place.place_name)}</strong><small>${escapeHtml(place.road_address_name || place.address_name)}</small></button>`;
+        item.querySelector('button').onclick = async event => {
+          if (await act(event.currentTarget, `/${box.dataset.lodgingLocateForm}/location`, { lat: Number(place.y), lng: Number(place.x) })) {
+            showToast('숙소 위치를 저장했어요.', 'success');
+            render();
+          }
+        };
+        list.append(item);
+      }
+    } catch (error) { status(error.message); }
   }; });
 
   const form = document.getElementById('lodgingForm');
@@ -113,13 +149,17 @@ async function loadLodging(room) {
     for (const key of ['bedrooms', 'beds', 'bathrooms', 'capacity']) {
       if (preview.features?.[key] != null && !form.elements[key].value) form.elements[key].value = preview.features[key];
     }
+    form.elements.lat.value = preview.location?.lat ?? '';
+    form.elements.lng.value = preview.location?.lng ?? '';
+    document.getElementById('lodgingPreviewTitle').textContent += preview.location ? ' · 📍 위치 확인됨' : ' · 위치를 못 읽었어요(올린 뒤 📍 위치 지정 가능)';
     status(preview.notice || '불러왔어요. 내용을 확인하고 후보 올리기를 눌러주세요.');
   };
   form.onsubmit = async event => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(form));
     const body = { url: values.url, name: values.name, memo: values.memo, imageUrl: values.imageUrl };
+    if (values.lat && values.lng) Object.assign(body, { lat: Number(values.lat), lng: Number(values.lng) });
     for (const key of ['bedrooms', 'beds', 'bathrooms', 'capacity']) if (values[key] !== '') body[key] = Number(values[key]);
-    if (await act(form.querySelector('button.lodging-wide'), '', body)) loadLodging(room);
+    if (await act(form.querySelector('button.lodging-wide'), '', body)) loadLodging(room, mapKey);
   };
 }

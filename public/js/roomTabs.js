@@ -12,15 +12,19 @@ function defaultRoomTab(room, previous) {
   return room.activeTripId && room.status === 'decided' ? 'conditions' : 'place';
 }
 
-function bindRoomTabs(room) {
+// options.initialTab: 뒤로가기로 돌아왔을 때 열 탭, options.onChange(tab, userInitiated): 탭이 바뀔 때 알림(방문 기록·스크롤)
+function bindRoomTabs(room, options = {}) {
   const topButtons = [...document.querySelectorAll('[data-room-top]')];
   const subButtons = [...document.querySelectorAll('[data-room-tab]')];
   const subnav = document.getElementById('tripSubnav');
   const phase = `${room.activeTripId || 'none'}:${room.status}`;
   let lastTripTab = TRIP_TABS.includes(roomTabState.get(room.id)?.tab) ? roomTabState.get(room.id).tab : null;
 
-  function activate(tab, focus = false) {
+  let currentTab = null;
+  function activate(tab, focus = false, userInitiated = false) {
     if (![...topButtons.map(button => button.dataset.roomTop), ...subButtons.map(button => button.dataset.roomTab)].includes(tab) || tab === 'trip') return;
+    const changed = tab !== currentTab;
+    currentTab = tab;
     roomTabState.set(room.id, { phase, tab });
     if (TRIP_TABS.includes(tab)) lastTripTab = tab;
     const top = topOf(tab);
@@ -45,8 +49,9 @@ function bindRoomTabs(room) {
       // 숨어 있을 때 만든 지도처럼 크기를 다시 맞춰야 하는 내용에 알림
       if (wasHidden && !panel.hidden) panel.dispatchEvent(new Event('tabshow'));
     }
+    if (changed && options.onChange) options.onChange(tab, userInitiated);
   }
-  const openTop = (top, focus = false) => activate(top === 'trip' ? (lastTripTab || defaultRoomTab(room, null)) : top, focus);
+  const openTop = (top, focus = false) => activate(top === 'trip' ? (lastTripTab || defaultRoomTab(room, null)) : top, focus, true);
 
   function arrowKeys(buttons, key, onSelect) {
     buttons.forEach((button, index) => {
@@ -61,12 +66,16 @@ function bindRoomTabs(room) {
     });
   }
   topButtons.forEach(button => { button.onclick = () => openTop(button.dataset.roomTop); });
-  subButtons.forEach(button => { button.onclick = () => activate(button.dataset.roomTab); });
+  subButtons.forEach(button => { button.onclick = () => activate(button.dataset.roomTab, false, true); });
   arrowKeys(topButtons, 'roomTop', openTop);
-  arrowKeys(subButtons, 'roomTab', activate);
+  arrowKeys(subButtons, 'roomTab', (tab, focus) => activate(tab, focus, true));
   document.querySelectorAll('[data-go-tab]').forEach(button => {
-    button.onclick = () => activate(button.dataset.goTab, true);
+    button.onclick = () => activate(button.dataset.goTab, true, true);
   });
-  activate(defaultRoomTab(room, roomTabState.get(room.id)));
+  const initial = options.initialTab && [...topButtons.map(button => button.dataset.roomTop), ...subButtons.map(button => button.dataset.roomTab)].includes(options.initialTab)
+    ? options.initialTab : defaultRoomTab(room, roomTabState.get(room.id));
+  activate(initial);
+  // 뒤로가기로 같은 방 안에서 탭만 바꿀 때 사용
+  return tab => activate(tab, false, false);
 }
 if (typeof module !== 'undefined') module.exports = { defaultRoomTab, bindRoomTabs, TRIP_TABS };

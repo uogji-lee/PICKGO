@@ -30,6 +30,19 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }, 
     if (!Number.isFinite(number) || number < 0 || number > max) throw fail(`숫자는 0~${max} 사이로 입력해주세요.`);
     return Math.round(number * 2) / 2; // 욕실 1.5개 같은 값 허용
   };
+  // 숙소 좌표(국내만). 없으면 null
+  const cleanPoint = (lat, lng) => {
+    if (lat === undefined || lat === null || lat === '' || lng === undefined || lng === null || lng === '') return null;
+    const y = Number(lat), x = Number(lng);
+    if (!(y >= 33 && y <= 38.7 && x >= 124.5 && x <= 131.9)) throw fail('숙소 위치는 국내 좌표만 저장할 수 있어요.');
+    return { lat: Number(y.toFixed(5)), lng: Number(x.toFixed(5)) };
+  };
+  // 확정된 숙소면 방의 숙소 좌표도 맞춤 (코스 지도 🏠 · 숙소 기준 동선)
+  const syncSelected = (room, candidate, point) => {
+    if (room.accommodation_url !== candidate.url) return;
+    db.prepare('UPDATE rooms SET accommodation_map_x = ?, accommodation_map_y = ? WHERE id = ?')
+      .run(point ? String(point.lng) : null, point ? String(point.lat) : null, room.id);
+  };
   const cleanImage = value => {
     const text = String(value || '').trim();
     return text.startsWith('https://') && text.length <= 1000 ? text : null;
@@ -49,6 +62,7 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }, 
       WHERE c.trip_id = ? AND c.deleted = 0 ORDER BY c.id`).all(room.active_trip_id).map(candidate => ({
       id: candidate.id, name: candidate.name, url: candidate.url, memo: candidate.memo, creator: candidate.creator,
       imageUrl: candidate.image_url, bedrooms: candidate.bedrooms, beds: candidate.beds, bathrooms: candidate.bathrooms, capacity: candidate.capacity,
+      lat: candidate.lat, lng: candidate.lng,
       voterIds: votes.filter(vote => vote.candidate_id === candidate.id).map(vote => vote.user_id),
       voters: votes.filter(vote => vote.candidate_id === candidate.id).map(vote => vote.nickname),
       canDelete: isHost || candidate.created_by === req.user.id,
@@ -79,8 +93,9 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }, 
     const url = cleanUrl(req.body?.url);
     const features = [count(req.body?.bedrooms, 30), count(req.body?.beds, 50), count(req.body?.bathrooms, 30), count(req.body?.capacity, 60)];
     if (db.prepare('SELECT count(*) AS n FROM lodging_candidates WHERE trip_id = ? AND deleted = 0').get(room.active_trip_id).n >= 20) throw fail('숙소 후보는 20개까지 올릴 수 있어요.');
-    const id = db.prepare('INSERT INTO lodging_candidates(room_id,trip_id,name,url,memo,created_by,image_url,bedrooms,beds,bathrooms,capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(room.id, room.active_trip_id, name, url, memo, req.user.id, cleanImage(req.body?.imageUrl), ...features).lastInsertRowid;
+    const point = cleanPoint(req.body?.lat, req.body?.lng);
+    const id = db.prepare('INSERT INTO lodging_candidates(room_id,trip_id,name,url,memo,created_by,image_url,bedrooms,beds,bathrooms,capacity,lat,lng) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(room.id, room.active_trip_id, name, url, memo, req.user.id, cleanImage(req.body?.imageUrl), ...features, point?.lat ?? null, point?.lng ?? null).lastInsertRowid;
     return { ok: true, id };
   }));
 
@@ -118,9 +133,21 @@ function registerLodging(app, { db, auth, getRoomOr404, isMember, tripRoster }, 
     const { room, isHost } = context(req);
     if (!isHost) throw fail('방장만 숙소를 확정할 수 있어요.', 403);
     const candidate = candidateOr404(room, req.params.candidateId);
-    db.prepare('UPDATE rooms SET accommodation_name = ?, accommodation_address = NULL, accommodation_url = ?, accommodation_map_x = NULL, accommodation_map_y = NULL WHERE id = ?')
-      .run(candidate.name, candidate.url, room.id);
-    return { ok: true };
+    db.prepare('UPDATE rooms SET accommodation_name = ?, accommodation_address = NULL, accommodation_url = ?, accommodation_map_x = ?, accommodation_map_y = ? WHERE id = ?')
+      .run(candidate.name, candidate.url, candidate.lng == null ? null : String(candidate.lng), candidate.lat == null ? null : String(candidate.lat), room.id);
+    return { ok: true, hasLocation: candidate.lat != null };
+  }));
+
+  // 링크에서 위치를 못 읽은 숙소는 방장이나 올린 사람이 지도 검색으로 위치를 지정
+  app.post('/api/rooms/:id/lodging/:candidateId/location', auth, handle(req => {
+    const { room, isHost } = context(req);
+    const candidate = candidateOr404(room, req.params.candidateId);
+    if (!isHost && candidate.created_by !== req.user.id) throw fail('올린 사람이나 방장만 위치를 지정할 수 있어요.', 403);
+    const point = cleanPoint(req.body?.lat, req.body?.lng);
+    if (!point) throw fail('지도에서 숙소 위치를 골라주세요.');
+    db.prepare('UPDATE lodging_candidates SET lat = ?, lng = ? WHERE id = ?').run(point.lat, point.lng, candidate.id);
+    syncSelected(room, candidate, point);
+    return { ok: true, ...point };
   }));
 }
 

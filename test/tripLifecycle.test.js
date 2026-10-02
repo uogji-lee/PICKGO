@@ -135,3 +135,30 @@ test('링크 미리보기는 대표사진·방 정보를 채우고, 후보에는
   assert.deepEqual(item.voters.sort(), [users[0].nickname, users[1].nickname].sort());
   assert.deepEqual([list.voterCount, list.participantCount], [2, 2]);
 });
+
+test('숙소 링크의 위치를 저장하고, 확정하면 방 숙소 좌표가 되며 위치가 없으면 나중에 지정할 수 있다', async () => {
+  const preview = require('../services/linkPreview');
+  assert.deepEqual(preview.parseLocation('{"@type":"LodgingBusiness","latitude":37.75126,"longitude":128.88942}'), { lat: 37.75126, lng: 128.88942 });
+  assert.equal(preview.parseLocation('"latitude":40.71,"longitude":-74.0'), null);
+
+  const { path } = await setup();
+  const withLocation = await request(`${path}/lodging`, users[1], { name: '강릉 독채', url: 'https://www.airbnb.co.kr/rooms/53595778', lat: 37.75126, lng: 128.88942 });
+  assert.equal(withLocation.status, 200);
+  assert.equal((await request(`${path}/lodging`, users[1], { name: '해외', url: 'https://example.com/a', lat: 40.7, lng: -74 })).status, 400);
+  const noLocation = await request(`${path}/lodging`, users[1], { name: '시내 호텔', url: 'https://hotel.example.com/b' });
+
+  assert.equal((await request(`${path}/lodging/${withLocation.data.id}/select`, users[0], {})).data.hasLocation, true);
+  let room = (await request(path, users[0])).data.room;
+  assert.deepEqual([room.accommodation.mapX, room.accommodation.mapY], ['128.88942', '37.75126']);
+
+  // 위치 없는 숙소: 올린 사람·방장만 지정, 확정된 숙소면 방 좌표도 갱신
+  assert.equal((await request(`${path}/lodging/${noLocation.data.id}/location`, users[2], { lat: 37.76, lng: 128.9 })).status, 403);
+  assert.equal((await request(`${path}/lodging/${noLocation.data.id}/select`, users[0], {})).data.hasLocation, false);
+  room = (await request(path, users[0])).data.room;
+  assert.equal(room.accommodation.mapX, null);
+  assert.equal((await request(`${path}/lodging/${noLocation.data.id}/location`, users[1], { lat: 37.7612, lng: 128.9001 })).status, 200);
+  room = (await request(path, users[0])).data.room;
+  assert.deepEqual([room.accommodation.mapX, room.accommodation.mapY], ['128.9001', '37.7612']);
+  const list = (await request(`${path}/lodging`, users[0])).data.candidates;
+  assert.deepEqual(list.map(item => item.lat), [37.75126, 37.7612]);
+});

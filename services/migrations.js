@@ -97,6 +97,8 @@ module.exports = function migrate(db) {
     add('lodging_candidates', 'beds', 'INTEGER');
     add('lodging_candidates', 'bathrooms', 'REAL');
     add('lodging_candidates', 'capacity', 'INTEGER');
+    add('lodging_candidates', 'lat', 'REAL');
+    add('lodging_candidates', 'lng', 'REAL');
     add('journeys', 'notes', "TEXT NOT NULL DEFAULT ''");
     db.exec(`CREATE TABLE IF NOT EXISTS kakao_signups (
       token_hash TEXT PRIMARY KEY, kakao_id TEXT NOT NULL, tokens TEXT NOT NULL,

@@ -109,7 +109,9 @@ body {
   font-size: 20px;
   font-weight: 800;
   color: var(--primary-dark);
+  text-decoration: none;
 }
+.logo:hover { opacity: .85; }
 
 .user-box {
   display: flex;
