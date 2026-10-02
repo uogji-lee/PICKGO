@@ -219,17 +219,35 @@ test('완료 후 추가 지출은 이전 정산을 보존하고 잔액·부족�
   assert.equal((await request(`${path}/trips/${tripId}/title`,users[0],{title:'수정 여행'})).status,200);
 });
 
-test('닉네임 변경은 중복을 막고 친구 추가·삭제는 내 목록에만 적용된다', async () => {
+test('닉네임 변경은 중복을 막고 친구는 요청을 수락해야 양쪽에 추가되며 끊으면 양쪽에서 사라진다', async () => {
   assert.equal((await request('/me/profile',null,{nickname:'안됨'})).status,401);
   assert.equal((await request('/me/profile',users[3],{nickname:users[0].nickname})).status,409);
   assert.equal((await request('/me/profile',users[3],{nickname:'새닉네임'})).status,200);
   assert.equal((await request('/me',users[3])).data.user.nickname,'새닉네임');
-  assert.equal((await request('/friends/by-nickname',users[0],{nickname:'새닉네임'})).status,200);
+  const sent = await request('/friends/by-nickname',users[0],{nickname:'새닉네임'});
+  assert.equal(sent.data.requested,true);
+  assert.ok(!(await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id)); // 수락 전엔 아직 친구 아님
+  assert.equal((await request('/friends/by-nickname',users[0],{nickname:'새닉네임'})).status,409); // 중복 요청
+  assert.equal((await request('/notifications',users[3])).data.friendRequests,1);
+  const incoming = (await request('/friends/requests',users[3])).data.incoming;
+  assert.equal(incoming[0].user_id,users[0].id);
+  assert.equal((await request(`/friends/requests/${incoming[0].id}/respond`,users[1],{accept:true})).status,404); // 받는 사람만 수락
+  assert.equal((await request(`/friends/requests/${incoming[0].id}/respond`,users[3],{accept:true})).status,200);
   assert.equal((await request('/friends',users[0])).data.friends.find(f=>f.id===users[3].id).nickname,'새닉네임');
-  assert.equal((await request(`/friends/${users[3].id}`,users[1],{},'DELETE')).status,200);
-  assert.ok((await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id));
-  assert.equal((await request(`/friends/${users[3].id}`,users[0],{},'DELETE')).status,200);
-  assert.ok(!(await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id));
+  assert.ok((await request('/friends',users[3])).data.friends.some(f=>f.id===users[0].id)); // 양쪽 모두
+  assert.equal((await request('/notifications',users[3])).data.friendRequests,0);
+  assert.equal((await request('/friends/by-nickname',users[3],{nickname:users[0].nickname})).status,409); // 이미 친구
+  assert.equal((await request(`/friends/${users[0].id}`,users[3],{},'DELETE')).status,200);
+  assert.ok(!(await request('/friends',users[0])).data.friends.some(f=>f.id===users[3].id)); // 끊으면 양쪽에서 삭제
+  // 서로 요청하면 바로 친구, 보낸 요청은 취소 가능
+  await request('/friends/by-nickname',users[1],{nickname:users[2].nickname});
+  const mutual = await request('/friends/by-nickname',users[2],{nickname:users[1].nickname});
+  assert.equal(mutual.data.accepted,true);
+  assert.ok((await request('/friends',users[1])).data.friends.some(f=>f.id===users[2].id));
+  await request('/friends/by-nickname',users[1],{nickname:'새닉네임'});
+  const outgoing = (await request('/friends/requests',users[1])).data.outgoing;
+  assert.equal((await request(`/friends/requests/${outgoing[0].id}/cancel`,users[1],{})).status,200);
+  assert.equal((await request('/notifications',users[3])).data.friendRequests,0);
 });
 
 test('총무 미지정 시 방장이 대행하고 지정·해제·추방 시 권한을 즉시 재계산한다', async () => {

@@ -121,15 +121,31 @@ function scrollToRoomTabs() {
   if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
 }
 
+// '계정 · 친구' 버튼의 빨간 알림 수 (받은 친구 요청 + 받은 방 초대). 30초마다 갱신
+let notificationTimer = null;
+async function refreshNotifications() {
+  if (!state.user) return;
+  if (!notificationTimer) notificationTimer = setInterval(() => { if (!document.hidden) refreshNotifications(); }, 30000);
+  try {
+    const { total, friendRequests, roomInvites } = await api('/notifications');
+    const badge = document.getElementById('notifyBadge');
+    if (!badge) return;
+    badge.hidden = !total;
+    badge.textContent = total > 99 ? '99+' : String(total);
+    document.getElementById('accountBtn')?.setAttribute('aria-label', total ? `계정 · 친구, 새 알림 ${total}개 (친구 요청 ${friendRequests}, 방 초대 ${roomInvites})` : '계정 · 친구');
+  } catch { /* 다음 갱신 때 다시 시도 */ }
+}
+
 function renderUserBox() {
   const box = userBoxEl();
   if (!state.user) { box.innerHTML = ''; return; }
   box.innerHTML = `
     <span>👤 ${escapeHtml(state.user.nickname)}님</span>
-    <button class="ghost small" id="accountBtn">계정 · 친구</button>
+    <button class="ghost small account-btn" id="accountBtn">계정 · 친구<span class="notify-badge" id="notifyBadge" hidden></span></button>
     <button class="ghost small" id="logoutBtn">로그아웃</button>
   `;
   el('#accountBtn', box).onclick = () => { state.view = 'account'; render(); };
+  refreshNotifications();
   el('#logoutBtn', box).onclick = async () => {
     await api('/logout', { method: 'POST' });
     state.user = null;
@@ -371,7 +387,7 @@ function captureRoomView() {
   if (state.renderedRoomId !== state.roomId || !appEl().querySelector('.room-tabs')) return null;
   return {
     scrollY: window.scrollY,
-    tab: roomTabState.get(state.roomId)?.tab || null,
+    panel: appEl().querySelector('[role="tabpanel"]:not([hidden])')?.id || null,
     closed: [...appEl().querySelectorAll('details')].filter(item => !item.open).map(item => item.querySelector('summary')?.textContent.trim()).filter(Boolean),
     sections: Object.fromEntries(LIVE_SECTIONS.map(id => [id, document.getElementById(id)?.innerHTML]).filter(([, html]) => html)),
   };
@@ -386,9 +402,8 @@ function restoreRoomView(snapshot) {
     if (snapshot.closed.includes(item.querySelector('summary')?.textContent.trim())) item.open = false;
   });
   // 여행지가 정해지는 등 다음 단계로 넘어가 다른 탭이 열렸으면 탭 위치로, 같은 탭이면 보던 위치 유지
-  const tab = roomTabState.get(state.roomId)?.tab || null;
-  if (snapshot.tab && tab !== snapshot.tab) { window.scrollTo(0, snapshot.scrollY); scrollToRoomTabs(); }
-  else window.scrollTo(0, snapshot.scrollY);
+  const panel = appEl().querySelector('[role="tabpanel"]:not([hidden])')?.id || null;
+  window.scrollTo(0, snapshot.panel && panel !== snapshot.panel ? 0 : snapshot.scrollY);
 }
 
 async function renderRoomDetail() {

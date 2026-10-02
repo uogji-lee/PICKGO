@@ -97,6 +97,12 @@ module.exports = function migrate(db) {
     add('lodging_candidates', 'beds', 'INTEGER');
     add('lodging_candidates', 'bathrooms', 'REAL');
     add('lodging_candidates', 'capacity', 'INTEGER');
+    db.exec(`CREATE TABLE IF NOT EXISTS friend_requests (
+      id INTEGER PRIMARY KEY, from_user_id INTEGER NOT NULL REFERENCES users(id), to_user_id INTEGER NOT NULL REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT (datetime('now')), responded_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS friend_requests_to ON friend_requests(to_user_id, status);
+    CREATE INDEX IF NOT EXISTS friend_requests_from ON friend_requests(from_user_id, status);`);
     add('lodging_candidates', 'lat', 'REAL');
     add('lodging_candidates', 'lng', 'REAL');
     add('journeys', 'notes', "TEXT NOT NULL DEFAULT ''");

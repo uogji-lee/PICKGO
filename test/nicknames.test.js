@@ -126,5 +126,6 @@ test('닉네임으로 친구 추가도 로그인과 같이 공백·대소문자�
   assert.equal((await addFriend('RUNNER')).status, 400); // 나 자신
   assert.equal((await addFriend('없는사람')).status, 400);
   assert.equal((await addFriend(123)).status, 400);
-  assert.deepEqual((await request('/friends', me)).data.friends.map(friend => friend.nickname).sort(), ['Traveler', '민 지'].sort());
+  // 친구는 요청 → 수락이라, 찾은 결과는 보낸 요청 목록으로 확인
+  assert.deepEqual((await request('/friends/requests', me)).data.outgoing.map(item => item.nickname).sort(), ['Traveler', '민 지'].sort());
 });

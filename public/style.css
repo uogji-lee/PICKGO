@@ -705,9 +705,10 @@ button.course-map-home {
   line-height: 1;
 }
 button.course-map-marker { min-width: 34px; height: 28px; font-size: 12px; }
-button.course-map-home { width: 34px; height: 34px; padding: 0; border-width: 2px; font-size: 17px; }
-button.course-map-marker:hover,
-button.course-map-home:hover { background: var(--soft-bg); }
+/* 숙소는 동그라미 없이 집 이모지만 */
+button.course-map-home { width: auto; height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 30px; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
+button.course-map-marker:hover { background: var(--soft-bg); }
+button.course-map-home:hover { background: transparent; transform: scale(1.1); }
 .course-map-bubble {
   position: relative;
   bottom: 24px;
@@ -1219,3 +1220,10 @@ input, select, textarea { color: var(--text); }
 .inquiry-reply-label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; }
 .inquiry-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .inquiry-actions button { margin: 0; }
+
+/* 계정 · 친구 알림 배지 (빨간 동그라미 + 수) */
+.account-btn { position: relative; }
+.notify-badge { position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #e5383b; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--card); }
+.user-box .notify-badge { display: block; }
+.notify-badge[hidden], .user-box .notify-badge[hidden] { display: none; }
+.notify-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #e5383b; color: #fff; font-size: 11px; line-height: 18px; text-align: center; vertical-align: middle; }

@@ -221,16 +221,75 @@ app.get('/api/nickname-available', optionalAuth, (req, res) => {
     message: formatError || (available ? '사용 가능한 닉네임이에요' : '이미 사용 중인 닉네임이에요'),
   });
 });
+// ---------- 친구: 요청 → 상대 수락 → 양쪽 친구 ----------
+const linkFriends = (a, b) => {
+  const insert = db.prepare('INSERT OR IGNORE INTO friend_links(owner_id,friend_id) VALUES (?,?)');
+  insert.run(a, b);
+  insert.run(b, a);
+};
+const pendingRequest = (from, to) => db.prepare("SELECT * FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'").get(from, to);
+
 app.post('/api/friends/by-nickname', auth, (req, res) => {
   // 로그인과 같은 규칙: 공백 정리·NFC 정규화, 대소문자만 다르면 한 명일 때 그 계정
   const friend = typeof req.body?.nickname === 'string' ? accounts.findUserByNickname(db, req.body.nickname) : null;
   if (!friend || friend.id === req.user.id) return res.status(400).json({ error: '다른 회원의 정확한 닉네임을 입력해주세요.' });
-  db.prepare('INSERT OR IGNORE INTO friend_links(owner_id,friend_id) VALUES (?,?)').run(req.user.id, friend.id);
+  const mutual = db.prepare('SELECT count(*) AS n FROM friend_links WHERE (owner_id = ? AND friend_id = ?) OR (owner_id = ? AND friend_id = ?)')
+    .get(req.user.id, friend.id, friend.id, req.user.id).n === 2;
+  if (mutual) return res.status(409).json({ error: '이미 친구예요.' });
+  // 상대가 먼저 나에게 요청했으면 바로 서로 친구
+  const reverse = pendingRequest(friend.id, req.user.id);
+  if (reverse) {
+    db.transaction(() => {
+      db.prepare("UPDATE friend_requests SET status = 'accepted', responded_at = datetime('now') WHERE id = ?").run(reverse.id);
+      linkFriends(req.user.id, friend.id);
+    })();
+    return res.json({ ok: true, accepted: true, nickname: friend.nickname });
+  }
+  if (pendingRequest(req.user.id, friend.id)) return res.status(409).json({ error: '이미 친구 요청을 보냈어요. 상대가 수락하면 친구가 돼요.' });
+  if (db.prepare("SELECT count(*) AS n FROM friend_requests WHERE from_user_id = ? AND status = 'pending'").get(req.user.id).n >= 50) {
+    return res.status(429).json({ error: '수락 대기 중인 요청이 너무 많아요. 보낸 요청을 정리한 뒤 다시 시도해주세요.' });
+  }
+  db.prepare('INSERT INTO friend_requests(from_user_id, to_user_id) VALUES (?, ?)').run(req.user.id, friend.id);
+  res.json({ ok: true, requested: true, nickname: friend.nickname });
+});
+
+app.get('/api/friends/requests', auth, (req, res) => {
+  const list = (column, other) => db.prepare(`SELECT r.id, r.created_at, u.id AS user_id, u.nickname FROM friend_requests r
+    JOIN users u ON u.id = r.${other} WHERE r.${column} = ? AND r.status = 'pending' ORDER BY r.id DESC`).all(req.user.id);
+  res.json({ incoming: list('to_user_id', 'from_user_id'), outgoing: list('from_user_id', 'to_user_id') });
+});
+
+app.post('/api/friends/requests/:requestId/respond', auth, (req, res) => {
+  if (typeof req.body?.accept !== 'boolean') return res.status(400).json({ error: '수락 여부를 선택해주세요.' });
+  const request = db.prepare("SELECT * FROM friend_requests WHERE id = ? AND to_user_id = ? AND status = 'pending'").get(Number(req.params.requestId), req.user.id);
+  if (!request) return res.status(404).json({ error: '친구 요청을 찾을 수 없어요.' });
+  db.transaction(() => {
+    db.prepare("UPDATE friend_requests SET status = ?, responded_at = datetime('now') WHERE id = ?").run(req.body.accept ? 'accepted' : 'declined', request.id);
+    if (req.body.accept) linkFriends(request.from_user_id, request.to_user_id);
+  })();
   res.json({ ok: true });
 });
-app.delete('/api/friends/:friendId', auth, (req, res) => {
-  db.prepare('DELETE FROM friend_links WHERE owner_id = ? AND friend_id = ?').run(req.user.id, Number(req.params.friendId));
+
+app.post('/api/friends/requests/:requestId/cancel', auth, (req, res) => {
+  const result = db.prepare("UPDATE friend_requests SET status = 'cancelled', responded_at = datetime('now') WHERE id = ? AND from_user_id = ? AND status = 'pending'")
+    .run(Number(req.params.requestId), req.user.id);
+  if (!result.changes) return res.status(404).json({ error: '보낸 요청을 찾을 수 없어요.' });
   res.json({ ok: true });
+});
+
+// 친구 끊기는 양쪽 목록에서 모두 삭제
+app.delete('/api/friends/:friendId', auth, (req, res) => {
+  const friendId = Number(req.params.friendId);
+  db.prepare('DELETE FROM friend_links WHERE (owner_id = ? AND friend_id = ?) OR (owner_id = ? AND friend_id = ?)').run(req.user.id, friendId, friendId, req.user.id);
+  res.json({ ok: true });
+});
+
+// 상단 '계정 · 친구' 알림 수: 받은 친구 요청 + 받은 방 초대
+app.get('/api/notifications', auth, (req, res) => {
+  const friendRequests = db.prepare("SELECT count(*) AS n FROM friend_requests WHERE to_user_id = ? AND status = 'pending'").get(req.user.id).n;
+  const roomInvites = db.prepare(`SELECT count(*) AS n FROM room_invites i JOIN rooms r ON r.id = i.room_id
+    WHERE i.recipient_id = ? AND i.status = 'pending' AND r.deleted_at IS NULL`).get(req.user.id).n;
+  res.json({ friendRequests, roomInvites, total: friendRequests + roomInvites });
 });
 
 // ---------- 방 생성 / 입장 ----------
