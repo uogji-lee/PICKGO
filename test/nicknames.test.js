@@ -116,3 +116,15 @@ test('DB에도 대소문자 무시 유니크 인덱스가 있어 동시 가입 �
   assert.equal(accounts.isNicknameConflict(error), true);
   assert.equal(accounts.isNicknameConflict(Object.assign(new Error('FOREIGN KEY constraint failed'), { code: 'SQLITE_CONSTRAINT_FOREIGNKEY' })), false);
 });
+
+test('닉네임으로 친구 추가도 로그인과 같이 공백·대소문자를 정리해 찾는다', async () => {
+  const login = await request('/login', null, { nickname: 'runner', password: 'test-pass' });
+  const me = { cookie: login.cookie };
+  const addFriend = nickname => request('/friends/by-nickname', me, { nickname });
+  assert.equal((await addFriend(' traveler ')).status, 200);
+  assert.equal((await addFriend('민    지')).status, 200);
+  assert.equal((await addFriend('RUNNER')).status, 400); // 나 자신
+  assert.equal((await addFriend('없는사람')).status, 400);
+  assert.equal((await addFriend(123)).status, 400);
+  assert.deepEqual((await request('/friends', me)).data.friends.map(friend => friend.nickname).sort(), ['Traveler', '민 지'].sort());
+});

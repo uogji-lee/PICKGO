@@ -222,8 +222,8 @@ app.get('/api/nickname-available', optionalAuth, (req, res) => {
   });
 });
 app.post('/api/friends/by-nickname', auth, (req, res) => {
-  const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';
-  const friend = db.prepare('SELECT id FROM users WHERE nickname = ?').get(nickname);
+  // 로그인과 같은 규칙: 공백 정리·NFC 정규화, 대소문자만 다르면 한 명일 때 그 계정
+  const friend = typeof req.body?.nickname === 'string' ? accounts.findUserByNickname(db, req.body.nickname) : null;
   if (!friend || friend.id === req.user.id) return res.status(400).json({ error: '다른 회원의 정확한 닉네임을 입력해주세요.' });
   db.prepare('INSERT OR IGNORE INTO friend_links(owner_id,friend_id) VALUES (?,?)').run(req.user.id, friend.id);
   res.json({ ok: true });

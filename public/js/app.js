@@ -607,7 +607,7 @@ async function renderRoomDetail() {
         ${members.map(m => `
           <li>
             <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span style="color:#bbb">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : m.originUndecided ? '미정' : '미입력'}</span>
+            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span class="muted">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : m.originUndecided ? '미정' : '미입력'}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
