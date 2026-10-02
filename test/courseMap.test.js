@@ -137,7 +137,8 @@ test('추천 카드는 연동 상태 배지 없이 코스 지도와 장소별 �
 
   const html = card.innerHTML;
   assert.doesNotMatch(html, /integration-status|정보 반영|연결됨|키 필요/);
-  assert.match(html, /class="source-note">장소 정보 출처: 네이버 지역검색/);
+  assert.match(html, /class="source-note">방문 전 운영시간과 휴무일을 확인해주세요/);
+  assert.doesNotMatch(html, /장소 정보 출처/);
   // 네이버 장소만 있어도 지도 버튼이 보이고 패널에 날짜 칩이 들어간다
   assert.match(html, /id="toggleCourseMapBtn"[\s\S]*id="courseMapPanel" hidden>[\s\S]*data-course-day="2"/);
   const itinerary = html.split('class="itinerary-days"')[1];

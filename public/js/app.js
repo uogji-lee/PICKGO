@@ -642,7 +642,6 @@ async function renderRoomDetail() {
       <label class="custom-preference-field">
         <span>기타 취향</span>
         <input type="text" id="customPreferenceInput" maxlength="80" placeholder="예: 조용한 산책, 인생샷 카페, 반려견 동반" value="${escapeHtml(me?.customPreference || '')}" />
-        <small>자유롭게 적으면 핵심 의도를 찾아 장소 검색과 일정 우선순위에 반영합니다.</small>
         ${(me?.customPreferenceKeywords || []).length ? `<small class="interpreted-preference">이해한 키워드: ${me.customPreferenceKeywords.map(escapeHtml).join(', ')}</small>` : ''}
       </label>
       <button class="block secondary" id="savePreferencesBtn">내 취향 저장</button>
@@ -662,7 +661,7 @@ async function renderRoomDetail() {
         </ul>
         ${room.selectedDresscode ? `<p class="dresscode-final">🎉 뽑힌 드레스코드: ${escapeHtml(room.selectedDresscode)}</p>` : ''}
         ${isHost && room.activeTripId ? `<button class="block" id="drawDresscodeBtn">${room.selectedDresscode ? '드레스코드 다시 뽑기' : '드레스코드 뽑기'}</button>` : ''}
-      ` : `<p class="desc">${isHost ? '켜면 멤버들이 원하는 컨셉을 입력하고, 그중 하나를 랜덤으로 뽑을 수 있어요.' : '이번 여행은 드레스코드를 정하지 않아요.'}</p>`}
+      ` : isHost ? '' : '<p class="desc">이번 여행은 드레스코드를 정하지 않아요.</p>'}
       </div>
     </details>
 
@@ -679,8 +678,7 @@ async function renderRoomDetail() {
       <ul class="member-list">
         ${members.map(m => `
           <li>
-            <span>${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
-            <span>${room.dresscodeEnabled ? `${m.dresscode ? `<span class="dresscode-tag">${escapeHtml(m.dresscode)}</span>` : '<span class="muted">컨셉 미입력</span>'} · ` : ''}취향 ${m.preferences.length}개${m.customPreference ? ` + 기타 “${escapeHtml(m.customPreference)}”` : ''} · 가능일 ${m.availability.length}개 · 출발 ${m.origin || m.originId ? `${escapeHtml(m.origin?.label || originLabel(m.originId) || '')}(${escapeHtml(originModes[m.originMode] || '')})` : m.originUndecided ? '미정' : '미입력'}</span>
+            <span class="member-name">${escapeHtml(m.nickname)} <span class="badge ${m.role === 'host' ? 'host' : ''}">${roomRoles[m.role] || '멤버'}</span>${m.role === 'host' && m.isTreasurer ? '<span class="badge">💰 총무 겸임</span>' : ''}</span>
             ${memberManagementControls(m, room, isHost)}
           </li>
         `).join('')}
@@ -995,7 +993,7 @@ async function loadRecommendations(roomId) {
           `;
         }).join('')}
       </div>
-      <p class="source-note">장소 정보 출처: ${escapeHtml(data.providerLabel)} · 방문 전 운영시간과 휴무일을 확인해주세요.</p>
+      <p class="source-note">방문 전 운영시간과 휴무일을 확인해주세요.</p>
     `;
 
     const mapButton = el('#toggleCourseMapBtn');

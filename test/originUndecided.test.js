@@ -111,7 +111,7 @@ test('여행을 끝내면 출발지 미정도 기록에 보관되고, 새 여행
   assert.deepEqual([me.originUndecided, me.originId], [false, null]);
 });
 
-test('출발지 카드와 멤버 목록은 미정과 미입력을 구분해 보여준다', async () => {
+test('출발지 카드는 미정과 미입력을 구분하고, 멤버 목록은 이름만 한 줄로 보여준다', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8').replace(/init\(\);\s*$/, '');
   const member = (id, nickname, extra) => ({ id, nickname, role: 'member', availability: [], preferences: [], originId: null, originMode: null, origin: null, originUndecided: false, ...extra });
   const members = [member(1, '나', { originUndecided: true }), member(2, '아직'), member(3, '부산러', { originId: 'bs-seomyeon', originMode: 'car' })];
@@ -138,7 +138,9 @@ test('출발지 카드와 멤버 목록은 미정과 미입력을 구분해 보�
     assert.match(list, /class="missing"><strong>아직<\/strong><span>미입력</);
     assert.match(list, /부산러<\/strong><span>부산 서면 · 자가용</);
     const memberList = html.split('class="member-list"')[1].split('</ul>')[0];
-    assert.match(memberList, /나[\s\S]*출발 미정[\s\S]*아직[\s\S]*출발 미입력[\s\S]*부산러[\s\S]*출발 부산 서면\(자가용\)/);
+    // 멤버 관리 목록에는 취향·가능일·출발지 요약을 띄우지 않는다
+    assert.match(memberList, /class="member-name">나[\s\S]*class="member-name">아직[\s\S]*class="member-name">부산러/);
+    assert.doesNotMatch(memberList, /취향|가능일|출발/);
   }
 });
 

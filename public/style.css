@@ -137,9 +137,14 @@ body {
 }
 
 /* Room roles and the shared travel ledger */
-.member-list li:has(.member-actions) { flex-wrap: wrap; }
-.member-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; margin-top: 8px; }
-.member-actions select { width: auto; margin: 0; padding: 7px 10px; }
+/* 멤버 관리: 인당 한 줄 (이름 왼쪽, 역할·위임·추방 오른쪽) */
+.member-list li { align-items: center; gap: 8px; }
+.member-list .member-name { flex: 1; min-width: 3.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 역할 드롭다운이 있는 줄은 같은 내용의 역할 배지를 숨김 */
+.member-list li:has(.member-actions) .member-name .badge { display: none; }
+.member-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; margin-left: auto; }
+.member-actions select { width: auto; min-width: 0; flex: 0 1 auto; margin: 0; padding: 4px 6px; }
+.member-actions button.small { margin: 0; min-height: 32px; padding: 4px 7px; font-size: 12px; white-space: nowrap; }
 .danger { color: var(--error-text); }
 .help-guide { display: block; margin: 24px auto; }
 [hidden] { display: none !important; }
@@ -219,7 +224,7 @@ body {
   border: 1px solid var(--border); border-radius: 9px; background: var(--card);
   color: var(--text); font: inherit; font-size: 14px; min-height: 42px;
 }
-.member-actions select { width: auto; margin-top: 0; }
+.member-actions select { width: auto; margin-top: 0; min-height: 32px; padding: 4px 4px 4px 8px; font-size: 12px; }
 .finance-inline button { margin-bottom: 0; }
 .finance-form label, .finance-inline label { font-size: 13px; display: block; }
 .finance-form fieldset { min-width: 0; border: 1px solid var(--border); border-radius: 10px; }
@@ -995,8 +1000,7 @@ button.course-map-home:hover { background: transparent; transform: scale(1.1); }
   .recommendation-grid { grid-template-columns: 1fr; }
   .recommendation-heading { display: block; }
   .source-badge { display: inline-block; margin-bottom: 12px; }
-  .member-list li { gap: 10px; align-items: flex-start; }
-  .member-list li > span:last-child { text-align: right; }
+  .member-list li { gap: 6px; }
   .trip-confirm-controls { grid-template-columns: 1fr 1fr; }
   .trip-confirm-controls button { grid-column: 1 / -1; }
   .itinerary-return { margin-left: 0; }
