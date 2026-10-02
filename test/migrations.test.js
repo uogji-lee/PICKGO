@@ -29,3 +29,32 @@ test('기존 회원·지출·반환·총무를 보존하며 반복 실행해도 
   assert.deepEqual(db.prepare('SELECT amount,trip_id FROM trip_refunds').get(), { amount: 1000, trip_id: journeys[0].id });
   db.close();
 });
+
+test('대소문자만 다른 기존 닉네임이 없을 때만 users_nickname_ci 유니크 인덱스를 만든다', t => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const setup = nicknames => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE users(id INTEGER PRIMARY KEY, nickname TEXT UNIQUE NOT NULL);
+      CREATE TABLE rooms(id INTEGER PRIMARY KEY, host_user_id INTEGER);
+      CREATE TABLE room_members(room_id INTEGER, user_id INTEGER, role TEXT, active INTEGER);
+      CREATE TABLE trip_payments(id INTEGER PRIMARY KEY, room_id INTEGER);
+      CREATE TABLE trip_expenses(id INTEGER PRIMARY KEY, room_id INTEGER);
+      CREATE TABLE trip_refunds(id INTEGER PRIMARY KEY, room_id INTEGER);
+    `);
+    for (const nickname of nicknames) db.prepare('INSERT INTO users(nickname) VALUES (?)').run(nickname);
+    migrate(db);
+    return db;
+  };
+  const hasIndex = db => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'users_nickname_ci'").get());
+  const clean = setup(['Minji', '민지']);
+  assert.equal(hasIndex(clean), true);
+  assert.throws(() => clean.prepare('INSERT INTO users(nickname) VALUES (?)').run('MINJI'), /UNIQUE/);
+  migrate(clean);
+  assert.equal(warn.mock.callCount(), 0);
+  const legacy = setup(['Minji', 'minji', '민지']);
+  assert.equal(hasIndex(legacy), false);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.equal(legacy.prepare('SELECT count(*) AS n FROM users').get().n, 3);
+  clean.close(); legacy.close();
+});

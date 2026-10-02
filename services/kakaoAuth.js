@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const security = require('./security');
-const { hashPassword, validateNickname } = require('./accounts');
+const { NICKNAME_TAKEN, hashPassword, isNicknameConflict, validateNickname } = require('./accounts');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
 function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options = {}) {
@@ -129,7 +129,9 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     const passwordHash = hashPassword(req.body?.password);
     const userId = db.transaction(() => {
       if (db.prepare('SELECT 1 FROM kakao_accounts WHERE kakao_id = ?').get(pending.kakao_id)) throw error('이미 가입된 카카오 계정입니다. 로그인해주세요.', 409);
-      const id = db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run(nickname, passwordHash).lastInsertRowid;
+      let id;
+      try { id = db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run(nickname, passwordHash).lastInsertRowid; }
+      catch (err) { throw isNicknameConflict(err) ? error(NICKNAME_TAKEN, 409) : err; }
       db.prepare('INSERT INTO kakao_accounts(user_id,kakao_id,tokens,expires_at) VALUES (?,?,?,?)').run(id, pending.kakao_id, pending.tokens, pending.token_expires_at);
       db.prepare('DELETE FROM kakao_signups WHERE token_hash = ?').run(pending.token_hash);
       return id;

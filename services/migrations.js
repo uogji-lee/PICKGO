@@ -113,6 +113,13 @@ module.exports = function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS packing_trip ON packing_items(trip_id);
     CREATE TABLE IF NOT EXISTS packing_seeds(trip_id INTEGER NOT NULL REFERENCES journeys(id),user_id INTEGER NOT NULL,PRIMARY KEY(trip_id,user_id));`);
+    // 대소문자만 다른 닉네임 중복 방지: 기존 데이터에 그런 중복이 없을 때만 인덱스 생성
+    const hasNickname = db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'nickname');
+    if (hasNickname && !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'users_nickname_ci'").get()) {
+      const duplicates = db.prepare('SELECT count(*) AS n FROM (SELECT 1 FROM users GROUP BY lower(nickname) HAVING count(*) > 1)').get().n;
+      if (duplicates) console.warn(`[migrations] 대소문자만 다른 닉네임이 ${duplicates}건 있어 users_nickname_ci 인덱스를 만들지 않았습니다.`);
+      else db.exec('CREATE UNIQUE INDEX users_nickname_ci ON users(lower(nickname))');
+    }
     if (!db.prepare('SELECT 1 FROM schema_versions WHERE name = ?').get('persistent-clubs-v1')) {
       for (const room of db.prepare('SELECT * FROM rooms').all()) {
         const people = db.prepare('SELECT user_id FROM room_members WHERE room_id = ? AND active = 1 ORDER BY user_id').all(room.id);

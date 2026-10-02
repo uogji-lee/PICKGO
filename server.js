@@ -118,12 +118,16 @@ app.post('/api/signup', (req, res) => {
   if (typeof nickname !== 'string' || typeof password !== 'string' || !nickname || !password) {
     return res.status(400).json({ error: '닉네임과 비밀번호를 모두 입력해주세요.' });
   }
-  let trimmed, hash;
+  let trimmed, hash, info;
   try {
     trimmed = accounts.validateNickname(db, nickname);
     hash = accounts.hashPassword(password);
-  } catch (error) { return res.status(error.status).json({ error: error.message }); }
-  const info = db.prepare('INSERT INTO users (nickname, password_hash) VALUES (?, ?)').run(trimmed, hash);
+    info = db.prepare('INSERT INTO users (nickname, password_hash) VALUES (?, ?)').run(trimmed, hash);
+  } catch (error) {
+    if (accounts.isNicknameConflict(error)) return res.status(409).json({ error: accounts.NICKNAME_TAKEN });
+    if (!error.status) throw error;
+    return res.status(error.status).json({ error: error.message });
+  }
   const user = { id: info.lastInsertRowid, nickname: trimmed };
   const token = issueToken(user);
   res.cookie('pickgo_token', token, { ...security.cookieOptions, maxAge: 30 * 24 * 3600 * 1000 });
@@ -135,7 +139,7 @@ app.post('/api/login', (req, res) => {
   if (!nickname || !password) {
     return res.status(400).json({ error: '닉네임과 비밀번호를 모두 입력해주세요.' });
   }
-  const row = db.prepare('SELECT * FROM users WHERE nickname = ?').get(String(nickname).trim());
+  const row = accounts.findUserByNickname(db, nickname);
   if (!row || !row.password_hash || !bcrypt.compareSync(String(password), row.password_hash)) {
     return res.status(401).json({ error: '닉네임 또는 비밀번호가 올바르지 않습니다.' });
   }
@@ -182,11 +186,28 @@ app.post('/api/me/password', auth, (req, res) => {
 });
 
 app.post('/api/me/profile', auth, (req, res) => {
-  const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';
-  if (nickname.length < 2 || nickname.length > 12) return res.status(400).json({ error: '닉네임은 2~12자로 입력해주세요.' });
-  if (db.prepare('SELECT id FROM users WHERE nickname = ? AND id != ?').get(nickname, req.user.id)) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
-  db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  let nickname;
+  try {
+    nickname = accounts.validateNickname(db, req.body?.nickname, req.user.id);
+    db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  } catch (error) {
+    if (accounts.isNicknameConflict(error)) return res.status(409).json({ error: accounts.NICKNAME_TAKEN });
+    if (!error.status) throw error;
+    return res.status(error.status).json({ error: error.message });
+  }
   res.json({ user: { ...req.user, nickname } });
+});
+// 가입·닉네임 변경 폼의 실시간 중복 확인 (로그인 사용자는 자기 닉네임을 사용 가능으로 봄)
+app.get('/api/nickname-available', optionalAuth, (req, res) => {
+  const raw = req.query.nickname;
+  if (typeof raw !== 'string' || raw.length > 40) return res.status(400).json({ error: '닉네임을 확인할 수 없어요.' });
+  const nickname = accounts.normalizeNickname(raw);
+  const formatError = accounts.nicknameFormatError(nickname);
+  const available = !formatError && !accounts.nicknameTaken(db, nickname, req.user?.id || 0);
+  res.set('Cache-Control', 'no-store').json({
+    available, nickname,
+    message: formatError || (available ? '사용 가능한 닉네임이에요' : '이미 사용 중인 닉네임이에요'),
+  });
 });
 app.post('/api/friends/by-nickname', auth, (req, res) => {
   const nickname = typeof req.body.nickname === 'string' ? req.body.nickname.trim() : '';

@@ -123,6 +123,13 @@ test('연결되지 않은 카카오 계정은 닉네임·비밀번호를 정해�
   assert.deepEqual(await (await call('/auth/kakao/signup', null, null, signupCookie)).json(), { pending: true, nicknameHint: '카카오친구' });
   assert.equal((await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'short' }, signupCookie)).status, 400);
   assert.equal((await call('/auth/kakao/signup', null, { nickname: '기존친구1', password: 'long-enough-pass' }, signupCookie)).status, 409);
+  // 대소문자·공백만 다른 닉네임도 같은 이름으로 막음
+  db.prepare('INSERT INTO users(nickname,password_hash) VALUES (?,?)').run('Traveler', '');
+  for (const nickname of [' 기존친구1 ', 'traveler', ' TRAVELER ']) {
+    const taken = await call('/auth/kakao/signup', null, { nickname, password: 'long-enough-pass' }, signupCookie);
+    assert.equal(taken.status, 409, nickname);
+    assert.equal((await taken.json()).error, '이미 사용 중인 닉네임입니다.');
+  }
   assert.equal((await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' })).status, 401);
   const done = await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' }, signupCookie);
   assert.equal(done.status, 200);

@@ -34,13 +34,17 @@ async function renderKakaoSignup() {
     <button class="link-btn" id="signupBack">← 로그인 화면</button>
   </div>`;
   el('#signupBack').onclick = back;
+  const nicknameInput = el('#kakaoSignupForm input[name=nickname]');
+  const nicknameCheck = watchNicknameAvailability(nicknameInput, el('#kakaoSignupForm button'));
+  nicknameCheck.check(); // 카카오 닉네임으로 채운 값도 바로 확인
   el('#kakaoSignupForm').onsubmit = async event => {
     event.preventDefault();
     const button = event.target.querySelector('button');
+    if (button.disabled || !(await nicknameCheck.check())) return;
     button.disabled = true;
     try {
       const { newPassword } = readPasswords(event.target);
-      const { user } = await api('/auth/kakao/signup', { method: 'POST', body: { nickname: new FormData(event.target).get('nickname'), password: newPassword } });
+      const { user } = await api('/auth/kakao/signup', { method: 'POST', body: { nickname: nicknameInput.value, password: newPassword } });
       state.user = user;
       state.view = 'rooms';
       render();

@@ -176,6 +176,7 @@ function renderAuth() {
     </div>
   `;
   let mode = 'login';
+  const nicknameCheck = watchNicknameAvailability(el('#nickname'), el('#submitBtn'), { enabled: () => mode === 'signup' && !el('#loginForm').hidden });
   configureKakaoLogin().then(() => { if (el('#loginForm')) setMode(mode); });
   el('#findAccountBtn').onclick = () => { state.view = 'findAccount'; render(); };
   const setMode = (m) => {
@@ -189,13 +190,14 @@ function renderAuth() {
     el('#tabSignup').className = m === 'signup' ? 'secondary' : '';
     el('#submitBtn').textContent = m === 'login' ? '로그인' : '회원가입';
     el('#password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+    nicknameCheck.check(); // 회원가입 탭에서만 중복 확인하고, 로그인 탭에선 안내를 지움
   };
   el('#tabLogin').onclick = () => setMode('login');
   el('#tabSignup').onclick = () => setMode('signup');
   el('#loginForm').onsubmit = async event => {
     event.preventDefault();
     const submit = el('#submitBtn');
-    if (submit.disabled) return;
+    if (submit.disabled || (mode === 'signup' && !(await nicknameCheck.check()))) return;
     submit.disabled = true;
     const nickname = el('#nickname').value.trim();
     const password = el('#password').value;

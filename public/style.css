@@ -927,6 +927,12 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
 .account-form .kakao-login-link { margin: 12px 0; }
 .account-form .found-nickname { padding: 12px 14px; border-radius: 10px; background: var(--bg); }
 .account-form .error-msg:empty, #passwordChangeStatus:empty { display: none; }
+/* 닉네임 실시간 중복 확인 안내 */
+.field-status { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.field-status:empty { display: none; }
+.field-status.ok { color: var(--success-text); }
+.field-status.bad { color: var(--error-text); }
+#loginForm .field-status { margin: -6px 0 12px; }
 #findAccountBtn { display: block; margin: 12px auto 0; }
 .notice-card { color: var(--teal); font-weight: 600; }
 
