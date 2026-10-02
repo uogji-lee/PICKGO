@@ -924,7 +924,6 @@ async function loadRecommendations(roomId) {
         <div>
           <p class="desc">${combinedPreferenceSummary || '아직 취향 선택이 없어 다양한 장소를 추천했어요.'}</p>
         </div>
-        <span class="source-badge">${escapeHtml(data.providerLabel)}</span>
       </div>
       ${notices.map(notice => `<div class="recommendation-notice">${escapeHtml(notice)}</div>`).join('')}
       <div class="route-context">
