@@ -1,3 +1,5 @@
+const { nicknameTaken, normalizeNickname } = require('./accounts');
+
 module.exports = function migrate(db) {
   const add = (table, name, type) => {
     if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
@@ -120,8 +122,18 @@ module.exports = function migrate(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS inquiries_user ON inquiries(user_id);`);
-    // 대소문자만 다른 닉네임 중복 방지: 기존 데이터에 그런 중복이 없을 때만 인덱스 생성
     const hasNickname = db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'nickname');
+    // 정규화(NFC·공백 정리) 도입 전에 저장된 닉네임을 한 번만 정리. 다른 계정과 겹치면 그대로 두고 경고
+    if (hasNickname && !db.prepare('SELECT 1 FROM schema_versions WHERE name = ?').get('nickname-normalize-v1')) {
+      for (const user of db.prepare('SELECT id, nickname FROM users').all()) {
+        const nickname = normalizeNickname(user.nickname);
+        if (!nickname || nickname === user.nickname) continue;
+        if (nicknameTaken(db, nickname, user.id)) console.warn(`[migrations] 정리한 닉네임이 다른 계정과 겹쳐 user ${user.id}의 닉네임은 그대로 둡니다.`);
+        else db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, user.id);
+      }
+      db.prepare('INSERT INTO schema_versions(name) VALUES (?)').run('nickname-normalize-v1');
+    }
+    // 대소문자만 다른 닉네임 중복 방지: 기존 데이터에 그런 중복이 없을 때만 인덱스 생성
     if (hasNickname && !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'users_nickname_ci'").get()) {
       const duplicates = db.prepare('SELECT count(*) AS n FROM (SELECT 1 FROM users GROUP BY lower(nickname) HAVING count(*) > 1)').get().n;
       if (duplicates) console.warn(`[migrations] 대소문자만 다른 닉네임이 ${duplicates}건 있어 users_nickname_ci 인덱스를 만들지 않았습니다.`);

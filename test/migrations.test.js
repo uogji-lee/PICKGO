@@ -59,3 +59,33 @@ test('대소문자만 다른 기존 닉네임이 없을 때만 users_nickname_ci
   assert.equal(legacy.prepare('SELECT count(*) AS n FROM users').get().n, 3);
   clean.close(); legacy.close();
 });
+
+test('정규화 전에 저장된 닉네임은 한 번만 정리하고, 정리하면 다른 계정과 겹치는 닉네임은 그대로 둔다', t => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE users(id INTEGER PRIMARY KEY, nickname TEXT UNIQUE NOT NULL);
+    CREATE TABLE rooms(id INTEGER PRIMARY KEY, host_user_id INTEGER);
+    CREATE TABLE room_members(room_id INTEGER, user_id INTEGER, role TEXT, active INTEGER);
+    CREATE TABLE trip_payments(id INTEGER PRIMARY KEY, room_id INTEGER);
+    CREATE TABLE trip_expenses(id INTEGER PRIMARY KEY, room_id INTEGER);
+    CREATE TABLE trip_refunds(id INTEGER PRIMARY KEY, room_id INTEGER);
+  `);
+  // 1: 연속 공백, 2: 자모 분리형(NFD), 3: 앞뒤 공백, 4: 이미 정리됨, 5: 정리하면 4와 대소문자만 다름, 6: 정리하면 1과 같아짐
+  const legacy = ['민  지', '하늘'.normalize('NFD'), ' Bora ', 'Traveler', ' traveler', '민   지'];
+  for (const nickname of legacy) db.prepare('INSERT INTO users(nickname) VALUES (?)').run(nickname);
+  migrate(db);
+  const nicknames = () => db.prepare('SELECT nickname FROM users ORDER BY id').all().map(row => row.nickname);
+  assert.deepEqual(nicknames(), ['민 지', '하늘'.normalize('NFC'), 'Bora', 'Traveler', ' traveler', '민   지']);
+  assert.equal(warn.mock.callCount(), 2);
+  assert.match(warn.mock.calls[0].arguments[0], /user 5/);
+  assert.ok(db.prepare("SELECT 1 FROM schema_versions WHERE name = 'nickname-normalize-v1'").get());
+  // 겹쳐서 남긴 닉네임이 있어도 대소문자 중복은 없으므로 유니크 인덱스는 만들어짐
+  assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'users_nickname_ci'").get());
+  // 다시 실행해도 같은 정리를 반복하지 않음
+  db.prepare('INSERT INTO users(nickname) VALUES (?)').run('새  이름');
+  migrate(db);
+  assert.equal(warn.mock.callCount(), 2);
+  assert.equal(nicknames().at(-1), '새  이름');
+  db.close();
+});

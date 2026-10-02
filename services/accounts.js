@@ -10,8 +10,8 @@ function normalizeNickname(value) {
 
 function nicknameFormatError(nickname) {
   if (nickname.length < 2 || nickname.length > 12) return '닉네임은 2~12자로 입력해주세요.';
-  // 보이지 않는 문자로 같은 이름을 흉내 내지 못하게 막음
-  if (/[\p{Cc}\u200B\u200C\u2060\uFEFF]/u.test(nickname)) return '닉네임에 쓸 수 없는 문자가 있어요.';
+  // 보이지 않는 문자(제어·서식 문자, 한글 채움 문자)로 같은 이름을 흉내 내지 못하게 막음
+  if (/[\p{Cc}\p{Cf}\u115F\u1160\u3164\uFFA0]/u.test(nickname)) return '닉네임에 쓸 수 없는 문자가 있어요.';
   return '';
 }
 

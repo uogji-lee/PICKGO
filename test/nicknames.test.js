@@ -40,7 +40,10 @@ test('닉네임은 공백 정리·NFC 정규화해 저장하고 대소문자·�
   assert.equal(decomposed.status, 200);
   assert.equal(decomposed.data.user.nickname, '하늘'.normalize('NFC'));
   assert.equal((await signup('하늘')).status, 409);
-  assert.equal((await signup('mi​nji')).status, 400);
+  // 보이지 않는 문자(폭 없는 공백·방향 제어·soft hyphen·한글 채움 문자 등)가 섞인 닉네임은 거절
+  for (const mark of ['\u200B', '\u200C', '\u200D', '\u200E', '\u200F', '\u202E', '\u2066', '\u00AD', '\u2060', '\u115F', '\u1160', '\u3164', '\uFFA0']) {
+    assert.equal((await signup(`mi${mark}nji`)).status, 400, mark.codePointAt(0).toString(16));
+  }
   assert.equal((await signup(' a ')).status, 400);
   assert.equal(db.prepare("SELECT count(*) AS n FROM users WHERE lower(nickname) = 'minji'").get().n, 1);
 });
@@ -85,6 +88,24 @@ test('닉네임 사용 가능 여부 API는 정규화한 값과 안내 문구를
   const me = { cookie: login.cookie };
   assert.equal((await available('minji', me)).data.available, true);
   assert.equal((await available('traveler', me)).data.available, false);
+});
+
+test('중복 확인을 통과한 뒤 같은 이름이 먼저 저장되는 경쟁에서도 가입·닉네임 변경은 409로 답한다', async () => {
+  // 확인과 저장 사이에 다른 요청이 대소문자만 다른 같은 이름을 먼저 저장한 상황을 트리거로 흉내 냄
+  db.exec(`CREATE TEMP TRIGGER race_insert BEFORE INSERT ON users WHEN NEW.nickname = 'Racer' BEGIN INSERT INTO users(nickname,password_hash) VALUES ('RACER',''); END;
+    CREATE TEMP TRIGGER race_update BEFORE UPDATE OF nickname ON users WHEN NEW.nickname = 'Racer' BEGIN INSERT INTO users(nickname,password_hash) VALUES ('RACER',''); END;`);
+  try {
+    const raced = await signup('Racer');
+    assert.equal(raced.status, 409);
+    assert.equal(raced.data.error, '이미 사용 중인 닉네임입니다.');
+    const runner = await signup('Runner');
+    const renamed = await request('/me/profile', { cookie: runner.cookie }, { nickname: 'Racer' });
+    assert.equal(renamed.status, 409);
+    assert.equal(renamed.data.error, '이미 사용 중인 닉네임입니다.');
+    assert.equal((await request('/me', { cookie: runner.cookie })).data.user.nickname, 'Runner');
+    // 실패한 문장은 트리거가 저장한 행까지 함께 되돌림
+    assert.equal(db.prepare("SELECT count(*) AS n FROM users WHERE lower(nickname) = 'racer'").get().n, 0);
+  } finally { db.exec('DROP TRIGGER race_insert; DROP TRIGGER race_update;'); }
 });
 
 test('DB에도 대소문자 무시 유니크 인덱스가 있어 동시 가입 경쟁은 닉네임 충돌로 판별된다', () => {

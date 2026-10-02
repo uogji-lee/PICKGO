@@ -35,20 +35,24 @@ async function renderKakaoSignup() {
   </div>`;
   el('#signupBack').onclick = back;
   const nicknameInput = el('#kakaoSignupForm input[name=nickname]');
-  const nicknameCheck = watchNicknameAvailability(nicknameInput, el('#kakaoSignupForm button'));
+  const form = el('#kakaoSignupForm'), button = el('button', form), errorBox = el('#kakaoSignupError');
+  const nicknameCheck = watchNicknameAvailability(nicknameInput, button);
   nicknameCheck.check(); // 카카오 닉네임으로 채운 값도 바로 확인
-  el('#kakaoSignupForm').onsubmit = async event => {
+  form.onsubmit = async event => {
     event.preventDefault();
-    const button = event.target.querySelector('button');
-    if (button.disabled || !(await nicknameCheck.check())) return;
+    if (!(await nicknameCheck.beforeSubmit())) return;
     button.disabled = true;
     try {
-      const { newPassword } = readPasswords(event.target);
+      const { newPassword } = readPasswords(form);
       const { user } = await api('/auth/kakao/signup', { method: 'POST', body: { nickname: nicknameInput.value, password: newPassword } });
       state.user = user;
       state.view = 'rooms';
       render();
-    } catch (error) { el('#kakaoSignupError').textContent = error.message; button.disabled = false; }
+    } catch (error) {
+      // 화면을 이미 떠났어도 잡아 둔 요소에 쓰므로 오류가 나지 않음
+      errorBox.textContent = error.message; button.disabled = false;
+      if (error.status === 409) nicknameCheck.recheck();
+    }
   };
 }
 

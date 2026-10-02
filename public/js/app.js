@@ -179,7 +179,9 @@ function renderAuth() {
     </div>
   `;
   let mode = 'login';
-  const nicknameCheck = watchNicknameAvailability(el('#nickname'), el('#submitBtn'), { enabled: () => mode === 'signup' && !el('#loginForm').hidden });
+  // 화면을 떠난 뒤 늦게 도착한 확인 응답에서도 쓰이므로 폼 참조를 잡아 둠
+  const loginForm = el('#loginForm');
+  const nicknameCheck = watchNicknameAvailability(el('#nickname'), el('#submitBtn'), { enabled: () => mode === 'signup' && !loginForm.hidden });
   configureKakaoLogin().then(() => { if (el('#loginForm')) setMode(mode); });
   el('#findAccountBtn').onclick = () => { state.view = 'findAccount'; render(); };
   const setMode = (m) => {
@@ -197,14 +199,13 @@ function renderAuth() {
   };
   el('#tabLogin').onclick = () => setMode('login');
   el('#tabSignup').onclick = () => setMode('signup');
-  el('#loginForm').onsubmit = async event => {
+  loginForm.onsubmit = async event => {
     event.preventDefault();
-    const submit = el('#submitBtn');
-    if (submit.disabled || (mode === 'signup' && !(await nicknameCheck.check()))) return;
+    const submit = el('#submitBtn'), errBox = el('#authError'), nicknameInput = el('#nickname'), passwordInput = el('#password');
+    if (!(await nicknameCheck.beforeSubmit())) return; // 로그인 탭에선 확인 없이 바로 통과
     submit.disabled = true;
-    const nickname = el('#nickname').value.trim();
-    const password = el('#password').value;
-    const errBox = el('#authError');
+    const nickname = nicknameInput.value.trim();
+    const password = passwordInput.value;
     errBox.innerHTML = '';
     try {
       const { user } = await api(mode === 'login' ? '/login' : '/signup', {
@@ -215,6 +216,7 @@ function renderAuth() {
       render();
     } catch (e) {
       errBox.innerHTML = `<div class="error-msg">${escapeHtml(e.message)}</div>`;
+      if (e.status === 409) nicknameCheck.recheck();
     } finally { submit.disabled = false; }
   };
 }

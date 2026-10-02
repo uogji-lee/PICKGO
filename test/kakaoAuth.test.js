@@ -130,6 +130,14 @@ test('연결되지 않은 카카오 계정은 닉네임·비밀번호를 정해�
     assert.equal(taken.status, 409, nickname);
     assert.equal((await taken.json()).error, '이미 사용 중인 닉네임입니다.');
   }
+  // 중복 확인 뒤 같은 이름(대소문자만 다름)이 먼저 저장되는 경쟁도 409이고, 가입 대기 정보는 남아 다시 시도할 수 있음
+  db.exec("CREATE TEMP TRIGGER kakao_race BEFORE INSERT ON users WHEN NEW.nickname = 'Racer' BEGIN INSERT INTO users(nickname,password_hash) VALUES ('RACER',''); END;");
+  try {
+    const raced = await call('/auth/kakao/signup', null, { nickname: 'Racer', password: 'long-enough-pass' }, signupCookie);
+    assert.equal(raced.status, 409);
+    assert.equal((await raced.json()).error, '이미 사용 중인 닉네임입니다.');
+  } finally { db.exec('DROP TRIGGER kakao_race'); }
+  assert.equal(db.prepare("SELECT count(*) AS n FROM users WHERE lower(nickname) = 'racer'").get().n, 0);
   assert.equal((await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' })).status, 401);
   const done = await call('/auth/kakao/signup', null, { nickname: '새친구', password: 'long-enough-pass' }, signupCookie);
   assert.equal(done.status, 200);

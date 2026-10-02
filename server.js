@@ -200,7 +200,17 @@ app.post('/api/me/profile', auth, (req, res) => {
   res.json({ user: { ...req.user, nickname } });
 });
 // 가입·닉네임 변경 폼의 실시간 중복 확인 (로그인 사용자는 자기 닉네임을 사용 가능으로 봄)
+// 아이디 존재 여부를 마구 조회하지 못하게 IP별 분당 60회로 제한하고, 카카오 가입 필수 서버는 가입 대기 중인 사람만 비로그인 조회 허용
+const nicknameChecks = new Map();
 app.get('/api/nickname-available', optionalAuth, (req, res) => {
+  const now = Date.now();
+  for (const [key, value] of nicknameChecks) if (value.until < now) nicknameChecks.delete(key);
+  const checks = nicknameChecks.get(req.ip) || { count: 0, until: now + 60000 };
+  nicknameChecks.set(req.ip, checks);
+  if (++checks.count > 60) return res.status(429).json({ error: '닉네임 확인 요청이 많아요. 잠시 후 다시 시도해주세요.' });
+  if (!req.user && kakaoAuth.signupRequired() && !kakaoAuth.hasPendingSignup(req)) {
+    return res.status(403).json({ error: '카카오 본인 인증 후 확인할 수 있어요.', code: 'KAKAO_SIGNUP_REQUIRED' });
+  }
   const raw = req.query.nickname;
   if (typeof raw !== 'string' || raw.length > 40) return res.status(400).json({ error: '닉네임을 확인할 수 없어요.' });
   const nickname = accounts.normalizeNickname(raw);

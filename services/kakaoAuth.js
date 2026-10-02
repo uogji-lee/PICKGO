@@ -169,6 +169,6 @@ function registerKakaoAuth(app, db, { auth, optionalAuth, issueToken }, options 
     })();
     res.json({ ok: true, roomId });
   }));
-  return { configured, signupRequired, resetCookie: RESET_COOKIE };
+  return { configured, signupRequired, hasPendingSignup: req => Boolean(pendingSignup(req)), resetCookie: RESET_COOKIE };
 }
 module.exports = { registerKakaoAuth };

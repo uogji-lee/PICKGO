@@ -6,7 +6,7 @@ function watchNicknameAvailability(input, button, { enabled = () => true } = {})
   status.setAttribute('role', 'status');
   input.setAttribute('aria-describedby', status.id);
   (input.closest('label') || input).after(status);
-  let timer, last = null, blocked = false;
+  let timer, last = null, blocked = false, submitting = false;
   // 버튼은 이 확인 때문에 막은 경우에만 다시 풀어 줌 (제출 중 비활성화와 겹치지 않게)
   const block = value => { if (value !== blocked) { blocked = value; button.disabled = value; } };
   const clear = () => { clearTimeout(timer); status.textContent = ''; input.removeAttribute('aria-invalid'); block(false); };
@@ -25,13 +25,23 @@ function watchNicknameAvailability(input, button, { enabled = () => true } = {})
     if (last?.value !== value) last = { value, request: api('/nickname-available?nickname=' + encodeURIComponent(value)).catch(() => null) };
     const current = last;
     return current.request.then(result => {
-      if (!result) return true;
+      // 실패한 확인은 기억하지 않고, 응답 전에 확인이 꺼졌으면(로그인 탭 등) 안내·차단 없이 통과
+      if (!result) { if (last === current) last = null; return true; }
+      if (!enabled()) return true;
       if (last === current && input.value === value) show(result);
       return result.available;
     });
   };
-  input.addEventListener('input', () => { clear(); if (enabled()) timer = setTimeout(check, 400); });
-  return { check, clear };
+  // 제출 직전 확인. 확인을 기다리는 동안 다시 제출하면 false로 막아 요청이 두 번 나가지 않게 함
+  const beforeSubmit = async () => {
+    if (submitting || button.disabled) return false;
+    submitting = true;
+    try { return await check(); } finally { submitting = false; }
+  };
+  // 제출이 409(이미 사용 중)로 실패하면 기억한 결과를 버리고 다시 확인해 안내를 맞춤
+  const recheck = () => { last = null; return check(); };
+  input.addEventListener('input', () => { clear(); if (enabled()) timer = setTimeout(() => { if (input.isConnected) check(); }, 400); });
+  return { check, clear, beforeSubmit, recheck };
 }
 
 function renderAccount() {
@@ -39,12 +49,13 @@ function renderAccount() {
   el('#accountBack').onclick = () => { state.view = 'rooms'; render(); };
   const nicknameInput = el('#profileForm input[name=nickname]');
   const nicknameCheck = watchNicknameAvailability(nicknameInput, el('#profileForm button'));
+  const profileStatus = el('#profileStatus');
   el('#profileForm').onsubmit = async event => {
     event.preventDefault(); const button = event.target.querySelector('button');
-    if (button.disabled || !(await nicknameCheck.check())) return;
+    if (!(await nicknameCheck.beforeSubmit())) return;
     button.disabled = true;
-    try { const result = await api('/me/profile', { method:'POST', body:{nickname:nicknameInput.value} }); state.user = {...state.user,...result.user}; renderUserBox(); nicknameInput.value = result.user.nickname; nicknameCheck.clear(); el('#profileStatus').textContent = '닉네임을 변경했습니다.'; }
-    catch (error) { el('#profileStatus').textContent = error.message; }
+    try { const result = await api('/me/profile', { method:'POST', body:{nickname:nicknameInput.value} }); state.user = {...state.user,...result.user}; renderUserBox(); nicknameInput.value = result.user.nickname; nicknameCheck.clear(); profileStatus.textContent = '닉네임을 변경했습니다.'; }
+    catch (error) { profileStatus.textContent = error.message; if (error.status === 409) nicknameCheck.recheck(); }
     finally { button.disabled = false; }
   };
   renderPasswordCard(el('#passwordCard'));
